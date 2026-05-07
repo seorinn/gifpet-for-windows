@@ -288,10 +288,17 @@ class HamsterDancer:
         menu = pystray.Menu(
             pystray.MenuItem('보이기 / 숨기기', self._toggle, default=True),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem('GIF 폴더 열기', self._open_gif_folder),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem('종료', self._quit),
         )
         self.tray = pystray.Icon('HamsterDancer', icon_img, 'HamsterDancer', menu)
         threading.Thread(target=self.tray.run, daemon=True).start()
+
+    def _open_gif_folder(self, *_):
+        import subprocess
+        folder = get_app_dir()
+        subprocess.Popen(['explorer', str(folder)])
 
     def _toggle(self, *_):
         self.visible = not self.visible
