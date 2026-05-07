@@ -26,10 +26,9 @@ def create_hamster_gif(path: Path) -> None:
 
 def create_ico(path: Path) -> None:
     print(f'  icon.ico 생성 중... → {path}')
-    base_img = create_tray_icon_image()   # 64x64 RGBA
+    base_img = create_tray_icon_image()   # 64x64 🐹 이모지
     sizes = [16, 32, 48, 64]
     imgs  = [base_img.resize((s, s), Image.LANCZOS) for s in sizes]
-    # append_images 방식이 Pillow 버전 간 호환성이 좋음
     imgs[0].save(
         str(path),
         format='ICO',
