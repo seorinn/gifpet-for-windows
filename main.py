@@ -208,10 +208,12 @@ class GifPet:
         self.canvas.pack()
         self._canvas_img_id = None
 
-        # 드래그로 위치 이동
+        # 드래그로 위치 이동 + 클릭 시 하트
         self.canvas.bind('<ButtonPress-1>',   self._drag_start)
         self.canvas.bind('<B1-Motion>',       self._drag_move)
-        self.canvas.bind('<ButtonRelease-1>', self._drag_end)
+        self.canvas.bind('<ButtonRelease-1>', self._on_click_release)
+
+        self._heart_images: list = []   # PhotoImage GC 방지
 
         self.root.after(50, self._animate)
 
@@ -238,6 +240,71 @@ class GifPet:
 
     def _drag_end(self, event):
         update_config(x=self.root.winfo_x(), y=self.root.winfo_y())
+
+    def _on_click_release(self, event):
+        dx = abs(event.x_root - (self.root.winfo_x() + self._drag_x))
+        dy = abs(event.y_root - (self.root.winfo_y() + self._drag_y))
+        if dx < 5 and dy < 5:   # 드래그 아닌 클릭
+            self._spawn_heart(event.x, event.y)
+
+    def _make_heart_image(self, size: int, alpha: int) -> ImageTk.PhotoImage:
+        """빨간 하트 PIL 이미지 → PhotoImage (크로마키 배경)"""
+        img = Image.new('RGB', (size, size), CHROMA_RGB)
+        d   = ImageDraw.Draw(img)
+        # 하트: 두 원 + 삼각형 조합
+        s = size
+        r = s // 4
+        color = (
+            min(255, int(220 + (255 - 220) * alpha / 255)),
+            int(30  * alpha / 255),
+            int(50  * alpha / 255),
+        )
+        # 왼쪽 원
+        d.ellipse([s//8, s//8, s//2, s//2 + r], fill=color)
+        # 오른쪽 원
+        d.ellipse([s//2 - r, s//8, s - s//8, s//2 + r], fill=color)
+        # 아랫쪽 삼각형 꼭짓점
+        d.polygon([
+            (s//8,      s//4 + r),
+            (s - s//8,  s//4 + r),
+            (s//2,      s - s//8),
+        ], fill=color)
+        return ImageTk.PhotoImage(img)
+
+    def _spawn_heart(self, cx: int, cy: int):
+        """클릭 위치 근처에 하트를 띄우고 위로 떠오르며 페이드아웃"""
+        size   = max(12, self._display_size // 5)
+        x      = cx - size // 2 + 4
+        y      = cy - size
+        frames = 18
+        step   = 0
+
+        # 캔버스에 이미지 아이템 생성
+        img = self._make_heart_image(size, 255)
+        self._heart_images.append(img)
+        item = self.canvas.create_image(x, y, anchor='nw', image=img)
+
+        def _tick():
+            nonlocal step, y
+            if step >= frames:
+                self.canvas.delete(item)
+                if img in self._heart_images:
+                    self._heart_images.remove(img)
+                return
+            progress = step / frames          # 0.0 → 1.0
+            alpha    = int(255 * (1 - progress))
+            y       -= 2
+            new_img  = self._make_heart_image(size, alpha)
+            self._heart_images.append(new_img)
+            self.canvas.itemconfigure(item, image=new_img)
+            self.canvas.coords(item, x, y)
+            # 오래된 이미지 정리 (현재 + 직전만 유지)
+            if len(self._heart_images) > 4:
+                self._heart_images.pop(0)
+            step += 1
+            self.root.after(30, _tick)
+
+        _tick()
 
     # ── 애니메이션 루프 ───────────────────────────────────────────────────────
     def _animate(self):
