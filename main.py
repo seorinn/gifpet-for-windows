@@ -347,7 +347,7 @@ class GifPet:
         elapsed = time.time() - self._last_key_time
         speed   = math.exp(-elapsed * math.log(2) / DECAY_HALF_LIFE)
         if self._base_delay == 0:
-            return int(20 + (1 - speed) * 30)   # 타이핑 시 20ms, 감쇠하며 50ms
+            return int(80 + (1 - speed) * 60)   # 타이핑 시 80ms, 감쇠하며 140ms
         min_d   = max(20, self._base_delay - SPEED_RANGE)
         return int(self._base_delay - speed * (self._base_delay - min_d))
 
