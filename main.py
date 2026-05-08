@@ -9,6 +9,7 @@ import threading
 import time
 import math
 import json
+import random
 import ctypes
 import ctypes.wintypes
 import os
@@ -284,8 +285,9 @@ class GifPet:
         size   = max(10, self._display_size // 6)
         pos    = [cx, cy - size // 2]
 
-        pts  = self._heart_polygon(pos[0], pos[1], size)
-        item = self.canvas.create_polygon(pts, fill='#dc1432', outline='', smooth=False)
+        pts     = self._heart_polygon(pos[0], pos[1], size)
+        brightness = random.uniform(0.78, 1.0)   # 80~100% 밝기 랜덤
+        item    = self.canvas.create_polygon(pts, fill='#dc1432', outline='', smooth=False)
 
         step = 0
 
@@ -294,7 +296,7 @@ class GifPet:
             if step >= FRAMES:
                 self.canvas.delete(item)
                 return
-            t      = 1.0 - step / FRAMES
+            t      = brightness * (1.0 - step / FRAMES)
             r_val  = int(220 * t + CHROMA_RGB[0] * (1 - t))
             g_val  = int(20  * t + CHROMA_RGB[1] * (1 - t))
             b_val  = int(50  * t + CHROMA_RGB[2] * (1 - t))
