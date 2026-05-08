@@ -250,26 +250,52 @@ class GifPet:
             self._drag_end(event)
 
     def _make_heart_image(self, size: int, t: float) -> ImageTk.PhotoImage:
-        """빨간 하트 PIL 이미지 → PhotoImage (크로마키 배경으로 페이드)
-        t: 1.0(불투명) → 0.0(완전 투명=크로마키)
+        """파라메트릭 하트 곡선으로 빨간 하트 생성 → 크로마키 PhotoImage
+        t: 1.0(불투명) → 0.0(사라짐).  RGBA 알파 임계처리로 배경 번짐 방지.
         """
-        img = Image.new('RGB', (size, size), CHROMA_RGB)
-        d   = ImageDraw.Draw(img)
-        s, r = size, size // 4
-        cr, cg, cb = CHROMA_RGB
-        color = (
-            int(cr + (220 - cr) * t),
-            int(cg + ( 30 - cg) * t),
-            int(cb + ( 50 - cb) * t),
-        )
-        d.ellipse([s//8, s//8, s//2, s//2 + r], fill=color)
-        d.ellipse([s//2 - r, s//8, s - s//8, s//2 + r], fill=color)
-        d.polygon([
-            (s//8,     s//4 + r),
-            (s - s//8, s//4 + r),
-            (s//2,     s - s//8),
-        ], fill=color)
-        return ImageTk.PhotoImage(img)
+        SCALE = 4                              # 고해상도로 그린 뒤 다운샘플
+        S     = size * SCALE
+        rgba  = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+        d     = ImageDraw.Draw(rgba)
+
+        # 파라메트릭 하트 곡선: x=16sin³t, y=13cos t-5cos2t-2cos3t-cos4t
+        steps  = 120
+        pad    = S * 0.08
+        pts = []
+        for i in range(steps):
+            angle = 2 * math.pi * i / steps
+            px = 16 * math.sin(angle) ** 3
+            py = -(13 * math.cos(angle)
+                   - 5 * math.cos(2 * angle)
+                   - 2 * math.cos(3 * angle)
+                   - math.cos(4 * angle))
+            pts.append((px, py))
+
+        # 정규화: -16~16, -13~13 → 캔버스에 맞게 스케일
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        draw_w = S - pad * 2
+        draw_h = S - pad * 2
+        scale  = min(draw_w / (max_x - min_x), draw_h / (max_y - min_y))
+        ox = pad + (draw_w - (max_x - min_x) * scale) / 2
+        oy = pad + (draw_h - (max_y - min_y) * scale) / 2
+        scaled = [
+            (ox + (px - min_x) * scale, oy + (py - min_y) * scale)
+            for px, py in pts
+        ]
+
+        alpha = int(255 * t)
+        d.polygon(scaled, fill=(220, 20, 50, alpha))
+
+        # 알파 임계처리(128) → 크로마키 합성 (배경 번짐 방지)
+        rgba_ds = rgba.resize((size, size), Image.LANCZOS)
+        r, g, b, a = rgba_ds.split()
+        a_clean  = a.point(lambda v: 0 if v < 128 else 255)
+        bg       = Image.new('RGB', (size, size), CHROMA_RGB)
+        bg.paste(Image.merge('RGB', (r, g, b)), mask=a_clean)
+        return ImageTk.PhotoImage(bg)
 
     def _spawn_heart(self, cx: int, cy: int):
         """클릭 위치 근처에 하트를 띄우고 위로 떠오르며 페이드아웃"""
