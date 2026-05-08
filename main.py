@@ -286,7 +286,7 @@ class GifPet:
         pos    = [cx, cy - size // 2]
 
         pts     = self._heart_polygon(pos[0], pos[1], size)
-        brightness = random.randint(3, 10) / 10   # 30~100% 밝기 랜덤 (10% 단위)
+        brightness = random.randint(1, 10) / 10   # 10~100% 밝기 랜덤 (10% 단위)
         item    = self.canvas.create_polygon(pts, fill='#dc1432', outline='', smooth=False)
 
         step = 0
