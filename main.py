@@ -213,7 +213,7 @@ class GifPet:
         self.canvas.bind('<B1-Motion>',       self._drag_move)
         self.canvas.bind('<ButtonRelease-1>', self._on_click_release)
 
-        self._heart_images: list = []   # PhotoImage GC 방지
+        self._heart_pts_cache: dict = {}  # size → 정규화된 하트 좌표 캐시
 
         self.root.after(50, self._animate)
 
@@ -249,82 +249,60 @@ class GifPet:
         else:
             self._drag_end(event)
 
-    def _make_heart_image(self, size: int, t: float) -> ImageTk.PhotoImage:
-        """파라메트릭 하트 곡선으로 빨간 하트 생성 → 크로마키 PhotoImage
-        t: 1.0(불투명) → 0.0(사라짐).  RGBA 알파 임계처리로 배경 번짐 방지.
-        """
-        SCALE = 4                              # 고해상도로 그린 뒤 다운샘플
-        S     = size * SCALE
-        rgba  = Image.new('RGBA', (S, S), (*CHROMA_RGB, 0))  # 엣지 블렌딩 시 검정 방지
-        d     = ImageDraw.Draw(rgba)
-
-        # 파라메트릭 하트 곡선: x=16sin³t, y=13cos t-5cos2t-2cos3t-cos4t
-        steps  = 120
-        pad    = S * 0.08
-        pts = []
-        for i in range(steps):
-            angle = 2 * math.pi * i / steps
-            px = 16 * math.sin(angle) ** 3
-            py = -(13 * math.cos(angle)
-                   - 5 * math.cos(2 * angle)
-                   - 2 * math.cos(3 * angle)
-                   - math.cos(4 * angle))
-            pts.append((px, py))
-
-        # 정규화: -16~16, -13~13 → 캔버스에 맞게 스케일
-        xs = [p[0] for p in pts]
-        ys = [p[1] for p in pts]
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
-        draw_w = S - pad * 2
-        draw_h = S - pad * 2
-        scale  = min(draw_w / (max_x - min_x), draw_h / (max_y - min_y))
-        ox = pad + (draw_w - (max_x - min_x) * scale) / 2
-        oy = pad + (draw_h - (max_y - min_y) * scale) / 2
-        scaled = [
-            (ox + (px - min_x) * scale, oy + (py - min_y) * scale)
-            for px, py in pts
-        ]
-
-        alpha = int(255 * t)
-        d.polygon(scaled, fill=(220, 20, 50, alpha))
-
-        # 알파 임계처리(128) → 크로마키 합성 (배경 번짐 방지)
-        rgba_ds = rgba.resize((size, size), Image.LANCZOS)
-        r, g, b, a = rgba_ds.split()
-        a_clean  = a.point(lambda v: 0 if v < 128 else 255)
-        bg       = Image.new('RGB', (size, size), CHROMA_RGB)
-        bg.paste(Image.merge('RGB', (r, g, b)), mask=a_clean)
-        return ImageTk.PhotoImage(bg)
+    def _heart_polygon(self, cx: int, cy: int, size: int) -> list:
+        """파라메트릭 하트 곡선 좌표 반환 (캔버스 절대 좌표). 크기별 캐시."""
+        if size not in self._heart_pts_cache:
+            steps = 80
+            pad   = size * 0.05
+            raw   = []
+            for i in range(steps):
+                a = 2 * math.pi * i / steps
+                raw.append((
+                    16 * math.sin(a) ** 3,
+                    -(13 * math.cos(a) - 5 * math.cos(2*a)
+                      - 2 * math.cos(3*a) - math.cos(4*a)),
+                ))
+            xs = [p[0] for p in raw]; ys = [p[1] for p in raw]
+            mn_x, mx_x = min(xs), max(xs)
+            mn_y, mx_y = min(ys), max(ys)
+            sc = min((size - pad*2) / (mx_x - mn_x),
+                     (size - pad*2) / (mx_y - mn_y))
+            ox = pad + ((size - pad*2) - (mx_x - mn_x) * sc) / 2
+            oy = pad + ((size - pad*2) - (mx_y - mn_y) * sc) / 2
+            # 원점 기준 정규화 좌표 저장
+            self._heart_pts_cache[size] = [
+                (ox + (px - mn_x) * sc - size/2,
+                 oy + (py - mn_y) * sc - size/2)
+                for px, py in raw
+            ]
+        return [(cx + dx, cy + dy)
+                for dx, dy in self._heart_pts_cache[size]]
 
     def _spawn_heart(self, cx: int, cy: int):
-        """클릭 위치 근처에 하트를 띄우고 위로 떠오르며 페이드아웃"""
+        """클릭 위치에 하트 폴리곤을 띄우고 위로 떠오르며 페이드아웃"""
         FRAMES = 18
         size   = max(10, self._display_size // 6)
-        x      = cx - size // 2
-        y      = cy - size
+        pos    = [cx, cy - size // 2]
 
-        # 18프레임 미리 생성 (매 tick마다 PIL 재생성 방지)
-        local_refs = [
-            self._make_heart_image(size, 1.0 - i / FRAMES)
-            for i in range(FRAMES)
-        ]
-        self._heart_images.extend(local_refs)
-        item = self.canvas.create_image(x, y, anchor='nw', image=local_refs[0])
+        pts  = self._heart_polygon(pos[0], pos[1], size)
+        item = self.canvas.create_polygon(pts, fill='#dc1432', outline='', smooth=False)
 
         step = 0
 
         def _tick():
-            nonlocal step, y
+            nonlocal step
             if step >= FRAMES:
                 self.canvas.delete(item)
-                for ref in local_refs:
-                    if ref in self._heart_images:
-                        self._heart_images.remove(ref)
                 return
-            y -= 2
-            self.canvas.itemconfigure(item, image=local_refs[step])
-            self.canvas.coords(item, x, y)
+            t      = 1.0 - step / FRAMES
+            r_val  = int(220 * t + CHROMA_RGB[0] * (1 - t))
+            g_val  = int(20  * t + CHROMA_RGB[1] * (1 - t))
+            b_val  = int(50  * t + CHROMA_RGB[2] * (1 - t))
+            color  = f'#{r_val:02x}{g_val:02x}{b_val:02x}'
+            pos[1] -= 2
+            new_pts = self._heart_polygon(pos[0], pos[1], size)
+            self.canvas.coords(item, [c for pt in new_pts for c in pt])
+            self.canvas.itemconfigure(item, fill=color)
             step += 1
             self.root.after(30, _tick)
 
