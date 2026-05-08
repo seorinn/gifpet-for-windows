@@ -97,69 +97,6 @@ def update_config(**kwargs):
         save_config(cfg)
 
 
-# ── 픽셀아트 햄스터 프레임 생성 ───────────────────────────────────────────────
-def draw_hamster_frame(frame_idx: int) -> Image.Image:
-    W, H = 80, 80
-    img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-
-    C = {
-        'body':  (180, 130,  80, 255),
-        'cream': (240, 210, 170, 255),
-        'dark':  ( 90,  55,  20, 255),
-        'eye':   ( 20,  10,   5, 255),
-        'pink':  (240, 150, 150, 255),
-        'blush': (255, 180, 180, 130),
-        'shine': (255, 255, 255, 200),
-    }
-
-    bounces = [0, -2, -3, -2, 0, 2, 3, 2]
-    b = bounces[frame_idx % 8]
-    arm_up = frame_idx < 4
-
-    d.ellipse([20, 42+b, 60, 68+b], fill=C['body'], outline=C['dark'], width=2)
-    d.ellipse([25, 46+b, 55, 66+b], fill=C['cream'])
-    d.ellipse([16, 14+b, 64, 52+b], fill=C['body'], outline=C['dark'], width=2)
-    d.ellipse([22, 20+b, 58, 47+b], fill=C['cream'])
-    d.ellipse([10,  4+b, 27, 22+b], fill=C['body'], outline=C['dark'], width=1)
-    d.ellipse([13,  7+b, 24, 19+b], fill=C['pink'])
-    d.ellipse([53,  4+b, 70, 22+b], fill=C['body'], outline=C['dark'], width=1)
-    d.ellipse([56,  7+b, 67, 19+b], fill=C['pink'])
-    d.ellipse([26, 26+b, 35, 35+b], fill=C['eye'])
-    d.ellipse([27, 27+b, 30, 30+b], fill=C['shine'])
-    d.ellipse([45, 26+b, 54, 35+b], fill=C['eye'])
-    d.ellipse([46, 27+b, 49, 30+b], fill=C['shine'])
-    d.ellipse([36, 37+b, 44, 43+b], fill=C['pink'])
-    d.ellipse([20, 35+b, 30, 43+b], fill=C['blush'])
-    d.ellipse([50, 35+b, 60, 43+b], fill=C['blush'])
-    d.arc([33, 42+b, 47, 50+b], 10, 170, fill=C['dark'], width=1)
-
-    if arm_up:
-        wave = [0, 4, 0, -4][frame_idx % 4]
-        d.line([20, 44+b,  4, 30+b+wave], fill=C['body'], width=5)
-        d.ellipse([ 1, 27+b+wave,  7, 33+b+wave], fill=C['body'], outline=C['dark'])
-        d.line([60, 44+b, 76, 30+b-wave], fill=C['body'], width=5)
-        d.ellipse([73, 27+b-wave, 79, 33+b-wave], fill=C['body'], outline=C['dark'])
-    else:
-        swing = [0, 5, 0, -5][(frame_idx - 4) % 4]
-        d.line([20, 48+b,  4, 62+b+swing], fill=C['body'], width=5)
-        d.ellipse([ 1, 59+b+swing,  7, 65+b+swing], fill=C['body'], outline=C['dark'])
-        d.line([60, 48+b, 76, 62+b-swing], fill=C['body'], width=5)
-        d.ellipse([73, 59+b-swing, 79, 65+b-swing], fill=C['body'], outline=C['dark'])
-
-    d.ellipse([22, 66+b, 35, 75+b], fill=C['body'], outline=C['dark'], width=1)
-    d.ellipse([45, 66+b, 58, 75+b], fill=C['body'], outline=C['dark'], width=1)
-
-    return img
-
-
-def create_default_hamster_gif(path: Path) -> None:
-    frames = [draw_hamster_frame(i) for i in range(8)]
-    frames[0].save(
-        str(path), save_all=True, append_images=frames[1:],
-        loop=0, duration=[120] * 8, format='GIF',
-    )
-
 
 def create_tray_icon_image() -> Image.Image:
     """🐹 이모지를 Segoe UI Emoji 폰트로 렌더링. 실패 시 손그림 폴백."""
@@ -200,9 +137,6 @@ def _rgba_to_chroma(img: Image.Image, size: tuple) -> ImageTk.PhotoImage:
     bg.paste(Image.merge('RGB', (r, g, b)), mask=a_clean)
     return ImageTk.PhotoImage(bg)
 
-
-def load_builtin_frames(size: tuple) -> list:
-    return [_rgba_to_chroma(draw_hamster_frame(i), size) for i in range(8)]
 
 
 def load_gif_frames(gif_path: Path, size: tuple) -> list:
@@ -252,7 +186,7 @@ class GifPet:
         if self._custom_gif:
             self.frames = load_gif_frames(self._custom_gif, size)
         else:
-            self.frames = load_builtin_frames(size)
+            raise RuntimeError('pet.gif를 찾을 수 없습니다. GIF 폴더에 pet.gif를 추가하세요.')
         if not self.frames:
             raise RuntimeError('프레임 로드 실패')
 
