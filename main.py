@@ -165,6 +165,7 @@ class GifPet:
 
         self._drag_x = 0
         self._drag_y = 0
+        self._last_heart_time: float = 0.0
 
         self._resolve_gif_path()
         self._init_window()
@@ -286,7 +287,12 @@ class GifPet:
         pos    = [cx, cy - size // 2]
 
         pts     = self._heart_polygon(pos[0], pos[1], size)
-        brightness = random.randint(1, 10) / 10   # 10~100% 밝기 랜덤 (10% 단위)
+        now = time.time()
+        if now - self._last_heart_time < 0.2:   # 200ms 쿨다운
+            return
+        self._last_heart_time = now
+
+        brightness = random.randint(4, 10) / 10   # 40~100% 밝기 랜덤 (10% 단위)
         item    = self.canvas.create_polygon(pts, fill='#dc1432', outline='', smooth=False)
 
         step = 0
@@ -398,9 +404,16 @@ class GifPet:
 
     def _apply_size(self, size: int):
         """크기 변경 (메인 스레드에서 실행)"""
+        import tkinter.messagebox as mb
+        prev_size = self._display_size
         self._display_size = size
-        self._load_frames()
-        self.current_frame = 0        # 범위 초과 방지
+        try:
+            self._load_frames()
+        except Exception as e:
+            self._display_size = prev_size
+            mb.showerror('GifPet', f'GIF 로드 실패: {e}')
+            return
+        self.current_frame = 0
         self.canvas.config(width=size, height=size)
         self._canvas_img_id = None
         self._reposition()
@@ -418,10 +431,15 @@ class GifPet:
 
     def _reload(self, *_):
         def _do_reload():
-            self._resolve_gif_path()
-            self._load_frames()
-            self.current_frame = 0
-            self._canvas_img_id = None
+            import tkinter.messagebox as mb
+            try:
+                self._resolve_gif_path()
+                self._load_frames()
+                self.current_frame = 0
+                self._canvas_img_id = None
+                self._heart_pts_cache.clear()
+            except Exception as e:
+                mb.showerror('GifPet', f'GIF 로드 실패: {e}')
         self.root.after(0, _do_reload)
 
     def _quit(self, *_):
