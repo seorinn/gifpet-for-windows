@@ -3,13 +3,14 @@
 ; 다운로드: https://jrsoftware.org/isdl.php
 
 [Setup]
+AppId={{A3F7C2E1-8B4D-4F6A-9E2C-1D5B7A3F8C2E}
 AppName=HamsterDancer
-AppVersion=1.0.0
+AppVersion=1.1.0
 AppPublisher=HamsterDancer
 DefaultDirName={autopf}\HamsterDancer
 DefaultGroupName=HamsterDancer
 OutputDir=installer
-OutputBaseFilename=HamsterDancer_Setup_v1.0.0
+OutputBaseFilename=HamsterDancer_Setup_v1.1.0
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
