@@ -246,61 +246,59 @@ class GifPet:
         dy = abs(event.y_root - (self.root.winfo_y() + self._drag_y))
         if dx < 5 and dy < 5:   # 드래그 아닌 클릭
             self._spawn_heart(event.x, event.y)
+        else:
+            self._drag_end(event)
 
-    def _make_heart_image(self, size: int, alpha: int) -> ImageTk.PhotoImage:
-        """빨간 하트 PIL 이미지 → PhotoImage (크로마키 배경)"""
+    def _make_heart_image(self, size: int, t: float) -> ImageTk.PhotoImage:
+        """빨간 하트 PIL 이미지 → PhotoImage (크로마키 배경으로 페이드)
+        t: 1.0(불투명) → 0.0(완전 투명=크로마키)
+        """
         img = Image.new('RGB', (size, size), CHROMA_RGB)
         d   = ImageDraw.Draw(img)
-        # 하트: 두 원 + 삼각형 조합
-        s = size
-        r = s // 4
+        s, r = size, size // 4
+        cr, cg, cb = CHROMA_RGB
         color = (
-            min(255, int(220 + (255 - 220) * alpha / 255)),
-            int(30  * alpha / 255),
-            int(50  * alpha / 255),
+            int(cr + (220 - cr) * t),
+            int(cg + ( 30 - cg) * t),
+            int(cb + ( 50 - cb) * t),
         )
-        # 왼쪽 원
         d.ellipse([s//8, s//8, s//2, s//2 + r], fill=color)
-        # 오른쪽 원
         d.ellipse([s//2 - r, s//8, s - s//8, s//2 + r], fill=color)
-        # 아랫쪽 삼각형 꼭짓점
         d.polygon([
-            (s//8,      s//4 + r),
-            (s - s//8,  s//4 + r),
-            (s//2,      s - s//8),
+            (s//8,     s//4 + r),
+            (s - s//8, s//4 + r),
+            (s//2,     s - s//8),
         ], fill=color)
         return ImageTk.PhotoImage(img)
 
     def _spawn_heart(self, cx: int, cy: int):
         """클릭 위치 근처에 하트를 띄우고 위로 떠오르며 페이드아웃"""
+        FRAMES = 18
         size   = max(12, self._display_size // 5)
-        x      = cx - size // 2 + 4
+        x      = cx - size // 2
         y      = cy - size
-        frames = 18
-        step   = 0
 
-        # 캔버스에 이미지 아이템 생성
-        img = self._make_heart_image(size, 255)
-        self._heart_images.append(img)
-        item = self.canvas.create_image(x, y, anchor='nw', image=img)
+        # 18프레임 미리 생성 (매 tick마다 PIL 재생성 방지)
+        local_refs = [
+            self._make_heart_image(size, 1.0 - i / FRAMES)
+            for i in range(FRAMES)
+        ]
+        self._heart_images.extend(local_refs)
+        item = self.canvas.create_image(x, y, anchor='nw', image=local_refs[0])
+
+        step = 0
 
         def _tick():
             nonlocal step, y
-            if step >= frames:
+            if step >= FRAMES:
                 self.canvas.delete(item)
-                if img in self._heart_images:
-                    self._heart_images.remove(img)
+                for ref in local_refs:
+                    if ref in self._heart_images:
+                        self._heart_images.remove(ref)
                 return
-            progress = step / frames          # 0.0 → 1.0
-            alpha    = int(255 * (1 - progress))
-            y       -= 2
-            new_img  = self._make_heart_image(size, alpha)
-            self._heart_images.append(new_img)
-            self.canvas.itemconfigure(item, image=new_img)
+            y -= 2
+            self.canvas.itemconfigure(item, image=local_refs[step])
             self.canvas.coords(item, x, y)
-            # 오래된 이미지 정리 (현재 + 직전만 유지)
-            if len(self._heart_images) > 4:
-                self._heart_images.pop(0)
             step += 1
             self.root.after(30, _tick)
 
