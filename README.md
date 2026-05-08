@@ -37,7 +37,7 @@
 ## GIF 커스터마이징
 
 1. 트레이 아이콘 우클릭 → **GIF 폴더 열기**
-2. 원하는 GIF 파일을 `hamster.gif` 이름으로 저장
+2. 원하는 GIF 파일을 `pet.gif` 이름으로 저장
 3. 앱 재시작
 
 - 어떤 크기의 GIF든 선택한 표시 크기로 자동 리사이즈됨
@@ -55,6 +55,6 @@ python main.py
 ```bash
 pip install -r requirements-build.txt
 python create_assets.py
-python -m PyInstaller --clean -y --onedir --windowed --name HamsterDancer --icon icon.ico --add-data "hamster.gif;." main.py
+python -m PyInstaller --clean -y --onedir --windowed --name HamsterDancer --icon icon.ico --add-data "pet.gif;." main.py
 # 이후 Inno Setup으로 setup.iss 컴파일
 ```

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 빌드 전에 실행하여 기본 에셋 생성:
-  - hamster.gif  (기본 픽셀아트 햄스터 애니메이션)
+  - pet.gif  (기본 픽셀아트 햄스터 애니메이션)
   - icon.ico     (exe / 설치파일 아이콘)
 """
 
@@ -11,7 +11,7 @@ from PIL import Image
 
 
 def create_hamster_gif(path: Path) -> None:
-    print(f'  hamster.gif 생성 중... → {path}')
+    print(f'  pet.gif 생성 중... → {path}')
     frames = [draw_hamster_frame(i) for i in range(8)]
     frames[0].save(
         str(path),
@@ -40,6 +40,6 @@ def create_ico(path: Path) -> None:
 if __name__ == '__main__':
     base = Path(__file__).parent
     print('=== HamsterDancer 에셋 생성 ===')
-    create_hamster_gif(base / 'hamster.gif')
+    create_hamster_gif(base / 'pet.gif')
     create_ico(base / 'icon.ico')
     print('\n모든 에셋 생성 완료!')

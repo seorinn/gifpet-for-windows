@@ -239,8 +239,12 @@ class HamsterDancer:
 
     # ── GIF 경로 확인 ─────────────────────────────────────────────────────────
     def _resolve_gif_path(self):
-        user_gif = get_app_dir() / 'hamster.gif'
-        self._custom_gif = user_gif if user_gif.exists() else None
+        user_gif = get_app_dir() / 'pet.gif'
+        if user_gif.exists():
+            self._custom_gif = user_gif
+        else:
+            bundled = get_bundled_resource('pet.gif')
+            self._custom_gif = bundled if bundled.exists() else None
 
     # ── 프레임 로드 ───────────────────────────────────────────────────────────
     def _load_frames(self):
