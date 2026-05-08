@@ -5,12 +5,12 @@
 [Setup]
 AppId={{A3F7C2E1-8B4D-4F6A-9E2C-1D5B7A3F8C2E}
 AppName=GifPet for Windows
-AppVersion=1.1.0
+AppVersion=1.3.0
 AppPublisher=GifPet
 DefaultDirName={autopf}\GifPet
 DefaultGroupName=GifPet
 OutputDir=installer
-OutputBaseFilename=GifPet_Setup_v1.1.0
+OutputBaseFilename=GifPet_Setup_v1.3.0
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
