@@ -322,17 +322,20 @@ class GifPet:
         if not self.running:
             return
         if self.visible and self.frames:
-            # 정지 모드: 타이핑 없으면 프레임 고정
-            if self._base_delay == 0:
-                elapsed = time.time() - self._last_key_time
-                if elapsed > 0.3:
-                    self.root.after(IDLE_DELAY, self._animate)
-                    return
+            # 항상 현재 프레임 렌더 (정지 모드에서도 gif가 보이도록)
             frame = self.frames[self.current_frame]
             if self._canvas_img_id is None:
                 self._canvas_img_id = self.canvas.create_image(0, 0, anchor='nw', image=frame)
             else:
                 self.canvas.itemconfigure(self._canvas_img_id, image=frame)
+
+            # 정지 모드: 타이핑 없으면 프레임 고정, 100ms 간격으로 폴링
+            if self._base_delay == 0:
+                elapsed = time.time() - self._last_key_time
+                if elapsed > 0.3:
+                    self.root.after(100, self._animate)
+                    return
+
             self.current_frame = (self.current_frame + 1) % len(self.frames)
             self.root.after(self._frame_delay(), self._animate)
         else:
