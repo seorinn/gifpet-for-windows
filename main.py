@@ -30,8 +30,9 @@ IDLE_DELAY    = 1000          # ms (숨김 상태 폴링 주기)
 DECAY_HALF_LIFE = 1.2         # 초: 키 입력 후 속도가 절반이 되는 시간
 SPEED_RANGE   = 150           # ms: 기본속도 ~ 최고속도 범위 (고정)
 
-# 속도 옵션 (label, base_delay ms)
+# 속도 옵션 (label, base_delay ms) — 0은 정지 모드 센티넬
 SPEED_OPTIONS = [
+    ('정지 (타이핑 시 반응)',  0),
     ('매우 느리게', 380),
     ('느리게',      280),
     ('보통',        200),
@@ -321,6 +322,12 @@ class GifPet:
         if not self.running:
             return
         if self.visible and self.frames:
+            # 정지 모드: 타이핑 없으면 프레임 고정
+            if self._base_delay == 0:
+                elapsed = time.time() - self._last_key_time
+                if elapsed > 0.3:
+                    self.root.after(IDLE_DELAY, self._animate)
+                    return
             frame = self.frames[self.current_frame]
             if self._canvas_img_id is None:
                 self._canvas_img_id = self.canvas.create_image(0, 0, anchor='nw', image=frame)
@@ -332,9 +339,12 @@ class GifPet:
             self.root.after(IDLE_DELAY, self._animate)
 
     def _frame_delay(self) -> int:
-        """기본 속도에서 타이핑에 반응해 빨라지고, 멈추면 지수 감쇠로 복귀"""
+        """기본 속도에서 타이핑에 반응해 빨라지고, 멈추면 지수 감쇠로 복귀.
+        정지 모드(base_delay=0)일 때는 최고 속도(20ms) 고정."""
         elapsed = time.time() - self._last_key_time
         speed   = math.exp(-elapsed * math.log(2) / DECAY_HALF_LIFE)
+        if self._base_delay == 0:
+            return int(20 + (1 - speed) * 30)   # 타이핑 시 20ms, 감쇠하며 50ms
         min_d   = max(20, self._base_delay - SPEED_RANGE)
         return int(self._base_delay - speed * (self._base_delay - min_d))
 
