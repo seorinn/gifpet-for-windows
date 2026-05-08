@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HamsterDancer - 타이핑할수록 신나게 춤추는 햄스터 오버레이
+GifPet - 타이핑할수록 신나게 춤추는 햄스터 오버레이
 트레이 아이콘 우클릭 → 보이기/숨기기, 속도, 크기, GIF, 종료
 """
 
@@ -46,7 +46,7 @@ DEFAULT_SIZE       = 80
 
 # ── 경로 헬퍼 ─────────────────────────────────────────────────────────────────
 def get_app_dir() -> Path:
-    path = Path(os.environ.get('APPDATA', Path.home())) / 'HamsterDancer'
+    path = Path(os.environ.get('APPDATA', Path.home())) / 'GifPet'
     path.mkdir(exist_ok=True)
     return path
 
@@ -216,7 +216,7 @@ def load_gif_frames(gif_path: Path, size: tuple) -> list:
 
 
 # ── 메인 앱 ──────────────────────────────────────────────────────────────────
-class HamsterDancer:
+class GifPet:
     def __init__(self):
         cfg = load_config()
         self._base_delay   = cfg.get('base_delay', DEFAULT_BASE_DELAY)
@@ -352,7 +352,7 @@ class HamsterDancer:
             pystray.MenuItem('종료', self._quit),
         )
         self.tray = pystray.Icon(
-            'HamsterDancer', create_tray_icon_image(), 'HamsterDancer', menu
+            'GifPet', create_tray_icon_image(), 'GifPet', menu
         )
         threading.Thread(target=self.tray.run, daemon=True).start()
 
@@ -422,5 +422,5 @@ class HamsterDancer:
 
 
 if __name__ == '__main__':
-    app = HamsterDancer()
+    app = GifPet()
     app.run()

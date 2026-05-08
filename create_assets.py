@@ -39,7 +39,7 @@ def create_ico(path: Path) -> None:
 
 if __name__ == '__main__':
     base = Path(__file__).parent
-    print('=== HamsterDancer 에셋 생성 ===')
+    print('=== GifPet 에셋 생성 ===')
     create_hamster_gif(base / 'pet.gif')
     create_ico(base / 'icon.ico')
     print('\n모든 에셋 생성 완료!')

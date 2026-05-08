@@ -1,12 +1,12 @@
-# 🐹 HamsterDancer
+# 🐹 GifPet for Windows
 
-타이핑할수록 신나게 춤추는 햄스터 오버레이 (Windows)
+타이핑할수록 신나게 춤추는 GIF 오버레이 (Windows)
 
-화면 우측 하단에 상주하며, 키보드 입력 속도에 따라 애니메이션 속도가 실시간으로 반응합니다.
+화면 위에 상주하며, 키보드 입력 속도에 따라 애니메이션 속도가 실시간으로 반응합니다.
 
 ## 설치 방법
 
-[Releases](../../releases) 에서 `HamsterDancer_Setup_v1.0.0.exe` 다운로드 후 실행.
+[Releases](../../releases) 에서 `GifPet_Setup_v1.1.0.exe` 다운로드 후 실행.
 
 - 설치 중 **"Windows 시작 시 자동 실행"** 체크 시 컴퓨터를 켤 때마다 자동으로 시작됩니다.
 - Python 등 별도 설치 불필요.
@@ -18,13 +18,14 @@
 - 시스템 트레이 아이콘 (우클릭 메뉴)
 - GIF 커스터마이징 지원
 - 기본 속도 / 크기 조절 (설정 자동 저장)
+- 드래그로 자유 위치 이동 (다중 모니터 지원)
 - Windows 자동 시작 등록
 
 ## 트레이 아이콘 메뉴
 
 | 메뉴 | 동작 |
 |------|------|
-| 보이기 / 숨기기 | 햄스터 표시 토글 |
+| 보이기 / 숨기기 | 오버레이 표시 토글 |
 | 기본 속도 | 매우 느리게 / 느리게 / 보통 / 빠르게 / 매우 빠르게 |
 | 크기 | 30 / 55 / 80 / 120 / 170 px |
 | GIF 폴더 열기 | 커스텀 GIF 저장 폴더 열기 |
@@ -32,7 +33,7 @@
 
 ## 위치 이동
 
-햄스터를 드래그하면 자유롭게 위치를 옮길 수 있습니다. 다중 모니터 환경도 지원하며, 위치는 자동 저장됩니다.
+오버레이를 드래그하면 자유롭게 위치를 옮길 수 있습니다. 다중 모니터 환경도 지원하며, 위치는 자동 저장됩니다.
 
 ## GIF 커스터마이징
 
@@ -55,6 +56,6 @@ python main.py
 ```bash
 pip install -r requirements-build.txt
 python create_assets.py
-python -m PyInstaller --clean -y --onedir --windowed --name HamsterDancer --icon icon.ico --add-data "pet.gif;." main.py
+python -m PyInstaller --clean -y --onedir --windowed --name GifPet --icon icon.ico --add-data "pet.gif;." main.py
 # 이후 Inno Setup으로 setup.iss 컴파일
 ```

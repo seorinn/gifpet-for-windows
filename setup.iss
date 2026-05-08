@@ -1,20 +1,20 @@
-; HamsterDancer - Inno Setup 설치 스크립트
+; GifPet for Windows - Inno Setup 설치 스크립트
 ; 빌드 후 이 파일을 Inno Setup Compiler로 컴파일하세요.
 ; 다운로드: https://jrsoftware.org/isdl.php
 
 [Setup]
 AppId={{A3F7C2E1-8B4D-4F6A-9E2C-1D5B7A3F8C2E}
-AppName=HamsterDancer
+AppName=GifPet for Windows
 AppVersion=1.1.0
-AppPublisher=HamsterDancer
-DefaultDirName={autopf}\HamsterDancer
-DefaultGroupName=HamsterDancer
+AppPublisher=GifPet
+DefaultDirName={autopf}\GifPet
+DefaultGroupName=GifPet
 OutputDir=installer
-OutputBaseFilename=HamsterDancer_Setup_v1.1.0
+OutputBaseFilename=GifPet_Setup_v1.1.0
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-UninstallDisplayIcon={app}\HamsterDancer.exe
+UninstallDisplayIcon={app}\GifPet.exe
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
@@ -25,21 +25,21 @@ Name: "startup"; Description: "Windows 시작 시 자동 실행 (권장)"; Group
 Name: "desktopicon"; Description: "바탕화면 바로가기 생성"; GroupDescription: "추가 옵션:"; Flags: unchecked
 
 [Files]
-Source: "dist\HamsterDancer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\GifPet\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\HamsterDancer"; Filename: "{app}\HamsterDancer.exe"
+Name: "{group}\GifPet"; Filename: "{app}\GifPet.exe"
 Name: "{group}\제거 (Uninstall)"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\HamsterDancer"; Filename: "{app}\HamsterDancer.exe"; Tasks: desktopicon
+Name: "{commondesktop}\GifPet"; Filename: "{app}\GifPet.exe"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "HamsterDancer"; ValueData: """{app}\HamsterDancer.exe"""; Flags: uninsdeletevalue; Tasks: startup
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "GifPet"; ValueData: """{app}\GifPet.exe"""; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
-Filename: "{app}\HamsterDancer.exe"; Description: "HamsterDancer 지금 실행"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\GifPet.exe"; Description: "GifPet for Windows 지금 실행"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "taskkill"; Parameters: "/f /im HamsterDancer.exe"; Flags: runhidden; RunOnceId: "KillApp"
+Filename: "taskkill"; Parameters: "/f /im GifPet.exe"; Flags: runhidden; RunOnceId: "KillApp"
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -47,5 +47,5 @@ var
   ResultCode: Integer;
 begin
   if CurStep = ssInstall then
-    Exec('taskkill', '/f /im HamsterDancer.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('taskkill', '/f /im GifPet.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
