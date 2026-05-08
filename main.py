@@ -353,6 +353,7 @@ class GifPet:
             pystray.MenuItem('크기',     self._size_menu()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem('GIF 폴더 열기', self._open_gif_folder),
+            pystray.MenuItem('GIF 다시 불러오기', self._reload),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem('종료', self._quit),
         )
@@ -414,6 +415,14 @@ class GifPet:
     def _open_gif_folder(self, *_):
         import subprocess
         subprocess.Popen(['explorer', str(get_app_dir())])
+
+    def _reload(self, *_):
+        def _do_reload():
+            self._resolve_gif_path()
+            self._load_frames()
+            self.current_frame = 0
+            self._canvas_img_id = None
+        self.root.after(0, _do_reload)
 
     def _quit(self, *_):
         self.running = False
