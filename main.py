@@ -255,7 +255,7 @@ class GifPet:
         """
         SCALE = 4                              # 고해상도로 그린 뒤 다운샘플
         S     = size * SCALE
-        rgba  = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+        rgba  = Image.new('RGBA', (S, S), (*CHROMA_RGB, 0))  # 엣지 블렌딩 시 검정 방지
         d     = ImageDraw.Draw(rgba)
 
         # 파라메트릭 하트 곡선: x=16sin³t, y=13cos t-5cos2t-2cos3t-cos4t
@@ -300,7 +300,7 @@ class GifPet:
     def _spawn_heart(self, cx: int, cy: int):
         """클릭 위치 근처에 하트를 띄우고 위로 떠오르며 페이드아웃"""
         FRAMES = 18
-        size   = max(12, self._display_size // 5)
+        size   = max(10, self._display_size // 6)
         x      = cx - size // 2
         y      = cy - size
 
