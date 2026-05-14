@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GifPet - 타이핑할수록 신나게 춤추는 오버레이 펫
+GifPet - 타이핑할수록 신나게 춤추는 오버레이 펫 (macOS)
 트레이 아이콘 우클릭 → 보이기/숨기기, 속도, 크기, 펫 변경, GIF 등록, 종료
 """
 
@@ -10,8 +10,6 @@ import time
 import math
 import json
 import random
-import ctypes
-import ctypes.wintypes
 import os
 import sys
 from pathlib import Path
@@ -21,6 +19,7 @@ import pystray
 from pynput import keyboard as kb
 
 # ── 고정 설정 ─────────────────────────────────────────────────────────────────
+# macOS Tk 8.6.9+는 -transparentcolor 속성을 지원하므로 Windows와 동일한 크로마키 방식 사용
 CHROMA     = '#fe01fe'
 CHROMA_RGB = (254, 1, 254)
 
@@ -28,7 +27,7 @@ SIDE_OFFSET   = 10
 BOTTOM_OFFSET = 4
 IDLE_DELAY    = 1000          # ms (숨김 상태 폴링 주기)
 DECAY_HALF_LIFE = 1.2         # 초: 키 입력 후 속도가 절반이 되는 시간
-SPEED_RANGE   = 150           # ms: 기본속도 ~ 최고속도 범위 (고정)
+SPEED_RANGE   = 150           # ms: 기본속도 ~ 최고속도 범위
 
 # 속도 옵션 (label, base_delay ms) — 0은 정지 모드 센티넬
 SPEED_OPTIONS = [
@@ -64,21 +63,32 @@ MOVE_STEP_PX       = 12       # 방향키 1회 이동 거리(px)
 
 # ── 경로 헬퍼 ─────────────────────────────────────────────────────────────────
 def get_app_dir() -> Path:
-    path = Path(os.environ.get('APPDATA', Path.home())) / 'GifPet'
-    path.mkdir(exist_ok=True)
+    path = Path.home() / 'Library' / 'Application Support' / 'GifPet'
+    path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def get_bundled_dir(subdir: str) -> Path:
-    """번들(exe) 또는 소스 실행 시 모두 동작하는 리소스 디렉터리 경로."""
+    """번들(.app) 또는 소스 실행 시 모두 동작하는 리소스 디렉터리 경로."""
     base = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else Path(__file__).parent
     return base / subdir
 
 
 def get_workarea() -> tuple:
-    rc = ctypes.wintypes.RECT()
-    ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rc), 0)
-    return rc.left, rc.top, rc.right, rc.bottom
+    """기본 모니터의 작업 영역(visibleFrame) 반환. Cocoa Y축 → tkinter Y축 변환."""
+    try:
+        from AppKit import NSScreen
+        screen = NSScreen.mainScreen()
+        ref_h  = screen.frame().size.height   # Cocoa 좌표 기준 전체 높이
+        vf     = screen.visibleFrame()
+        left   = int(vf.origin.x)
+        top    = int(ref_h - vf.origin.y - vf.size.height)
+        right  = int(vf.origin.x + vf.size.width)
+        bottom = int(ref_h - vf.origin.y)
+        return left, top, right, bottom
+    except Exception:
+        # AppKit 없을 경우 기본값 반환 (비macOS 환경 또는 개발용)
+        return 0, 0, 1920, 1080
 
 
 # ── 설정 저장/불러오기 ────────────────────────────────────────────────────────
@@ -115,30 +125,36 @@ def update_config(**kwargs):
         save_config(cfg)
 
 
-
-
 # ── 멀티 모니터 헬퍼 ─────────────────────────────────────────────────────────
 def _monitor_work_area(x: int, y: int) -> tuple:
-    """(x, y) 좌표가 속한 모니터의 작업 영역 (left, top, right, bottom) 반환."""
-    class _RECT(ctypes.Structure):
-        _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long),
-                    ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
-    class _MONITORINFO(ctypes.Structure):
-        _fields_ = [('cbSize', ctypes.c_ulong), ('rcMonitor', _RECT),
-                    ('rcWork', _RECT), ('dwFlags', ctypes.c_ulong)]
-
-    pt   = ctypes.wintypes.POINT(x, y)
-    hmon = ctypes.windll.user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
-    mi   = _MONITORINFO()
-    mi.cbSize = ctypes.sizeof(_MONITORINFO)
-    ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mi))
-    r = mi.rcWork
-    return r.left, r.top, r.right, r.bottom
+    """(x, y) 좌표가 속한 모니터의 작업 영역 (left, top, right, bottom) 반환.
+    Cocoa Y축(하단 원점) → tkinter Y축(상단 원점) 변환 공식:
+      tkinter_top = main_h - cocoa_origin_y - screen_height
+    """
+    try:
+        from AppKit import NSScreen
+        main_h = NSScreen.mainScreen().frame().size.height
+        for screen in NSScreen.screens():
+            fr = screen.frame()
+            sx0 = int(fr.origin.x)
+            sy0 = int(main_h - fr.origin.y - fr.size.height)
+            sx1 = int(fr.origin.x + fr.size.width)
+            sy1 = int(main_h - fr.origin.y)
+            if sx0 <= x <= sx1 and sy0 <= y <= sy1:
+                vf = screen.visibleFrame()
+                l  = int(vf.origin.x)
+                t  = int(main_h - vf.origin.y - vf.size.height)
+                r  = int(vf.origin.x + vf.size.width)
+                b  = int(main_h - vf.origin.y)
+                return l, t, r, b
+    except Exception:
+        pass
+    return get_workarea()
 
 
 # ── 커스텀 컨텍스트 메뉴 ─────────────────────────────────────────────────────
 class _CtxMenu(tk.Toplevel):
-    """그림자 없는 컨텍스트 메뉴. overrideredirect + WS_POPUP 으로 OS 그림자 제거."""
+    """그림자 없는 컨텍스트 메뉴."""
 
     BG    = '#ffffff'
     HOVER = '#eef'
@@ -146,19 +162,19 @@ class _CtxMenu(tk.Toplevel):
     TEXT  = '#111111'
     MUTED = '#999999'
     ACC   = '#6366f1'
-    F     = ('Segoe UI', 8)
+    F     = ('Helvetica Neue', 9)
 
     def __init__(self, root_win: tk.Tk, items: list, x: int, y: int,
                  _on_close=None, _top_menu=None):
         super().__init__(root_win)
         self.overrideredirect(True)
         self.wm_attributes('-topmost', True)
-        self.configure(bg='#cccccc')          # 외곽 1px 테두리색
+        self.configure(bg='#cccccc')
 
         self._root      = root_win
         self._sub       = None
         self._on_close  = _on_close
-        self._top_menu  = _top_menu or self   # 최상위 메뉴 참조
+        self._top_menu  = _top_menu or self
         self._closed    = False
         self._mouse_lst = None
 
@@ -169,7 +185,6 @@ class _CtxMenu(tk.Toplevel):
             self._mouse_lst.daemon = True
             self._mouse_lst.start()
 
-        # 화면 밖에 먼저 렌더링하여 크기 확정 후 정확한 위치로 이동
         self.geometry('+9999+9999')
         self._target_x = x
         self._target_y = y
@@ -184,16 +199,16 @@ class _CtxMenu(tk.Toplevel):
                 self._row(body, it)
 
         self.update_idletasks()
-        # 1ms 후 실제 렌더된 크기로 위치 확정 (update_idletasks만으론 부족할 때 대비)
         self.after(1, self._reposition)
 
-        self._bid = root_win.bind('<Button-1>', self._outside, add='+')
+        self._bid1 = root_win.bind('<Button-1>', self._outside, add='+')
+        self._bid2 = root_win.bind('<Button-2>', self._outside, add='+')
+        self._bid3 = root_win.bind('<Button-3>', self._outside, add='+')
         self.bind('<Escape>', lambda _: self._close())
 
     def _on_global_click(self, x, y, button, pressed):
         if not pressed:
             return
-        # 메뉴 영역 안 클릭이면 tkinter에 맡기고 무시
         for win in self._top_menu._all():
             try:
                 if (win.winfo_rootx() <= x <= win.winfo_rootx() + win.winfo_width() and
@@ -201,23 +216,18 @@ class _CtxMenu(tk.Toplevel):
                     return
             except Exception:
                 pass
-        # 메뉴 밖 클릭이면 닫기
         self._root.after(0, self._top_menu._close)
 
-    # ── 위치 확정 ─────────────────────────────────────────────────────────────
     def _reposition(self):
         w = self.winfo_reqwidth()
         h = self.winfo_reqheight()
         x, y = self._target_x, self._target_y
-
-        # 클릭한 좌표가 속한 모니터의 작업 영역을 구해 클리핑
         mx0, my0, mx1, my1 = _monitor_work_area(x, y)
         fx = min(x, mx1 - w - 2)
         fy = min(y, my1 - h - 2)
         self.geometry(f'{w}x{h}+{max(mx0, fx)}+{max(my0, fy)}')
         self.lift()
 
-    # ── 항목 ──────────────────────────────────────────────────────────────────
     def _row(self, parent: tk.Frame, it: dict):
         has_sub = it.get('sub') is not None
         checked = it.get('checked', False)
@@ -228,7 +238,7 @@ class _CtxMenu(tk.Toplevel):
 
         ck = tk.Label(row, text='·' if checked else ' ',
                       bg=self.BG, fg=self.ACC if checked else self.BG,
-                      font=('Segoe UI', 9), width=2, anchor='center')
+                      font=('Helvetica Neue', 10), width=2, anchor='center')
         ck.pack(side='left')
 
         lbl = tk.Label(row, text=it['label'], bg=self.BG, fg=self.TEXT,
@@ -238,7 +248,7 @@ class _CtxMenu(tk.Toplevel):
         arr = None
         if has_sub:
             arr = tk.Label(row, text='›', bg=self.BG, fg=self.MUTED,
-                           font=('Segoe UI', 10), padx=6, pady=2)
+                           font=('Helvetica Neue', 11), padx=6, pady=2)
             arr.pack(side='right')
 
         parts = [w for w in (row, ck, lbl, arr) if w]
@@ -255,7 +265,7 @@ class _CtxMenu(tk.Toplevel):
 
         def click(_):
             if cmd:
-                self._top_menu._close()   # 최상위부터 전체 닫기
+                self._top_menu._close()
                 cmd()
 
         for w in parts:
@@ -263,7 +273,6 @@ class _CtxMenu(tk.Toplevel):
             w.bind('<Leave>', leave)
             w.bind('<Button-1>', click)
 
-    # ── 서브메뉴 ──────────────────────────────────────────────────────────────
     def _open_sub(self, items, anchor):
         self._close_sub()
         ax = anchor.winfo_rootx() + anchor.winfo_width() + 2
@@ -278,7 +287,6 @@ class _CtxMenu(tk.Toplevel):
             except Exception: pass
             self._sub = None
 
-    # ── 닫기 ──────────────────────────────────────────────────────────────────
     def _close(self):
         if self._closed:
             return
@@ -287,8 +295,12 @@ class _CtxMenu(tk.Toplevel):
         if self._mouse_lst:
             try: self._mouse_lst.stop()
             except Exception: pass
-        try: self._root.unbind('<Button-1>', self._bid)
-        except Exception: pass
+        for bid in (getattr(self, '_bid1', None),
+                    getattr(self, '_bid2', None),
+                    getattr(self, '_bid3', None)):
+            if bid:
+                try: self._root.unbind('<Button-1>', bid)
+                except Exception: pass
         if self._on_close: self._on_close()
         try: self.destroy()
         except Exception: pass
@@ -308,18 +320,25 @@ class _CtxMenu(tk.Toplevel):
 
 
 def create_tray_icon_image() -> Image.Image:
-    """🐹 이모지를 Segoe UI Emoji 폰트로 렌더링. 실패 시 손그림 폴백."""
+    """🐹 이모지를 Apple Color Emoji 폰트로 렌더링. 실패 시 손그림 폴백."""
     size = 64
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     try:
         from PIL import ImageFont
-        font_path = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'Fonts' / 'seguiemj.ttf'
-        font = ImageFont.truetype(str(font_path), 52)
-        bbox = d.textbbox((0, 0), '🐹', font=font, embedded_color=True)
-        x = (size - (bbox[2] - bbox[0])) // 2 - bbox[0]
-        y = (size - (bbox[3] - bbox[1])) // 2 - bbox[1]
-        d.text((x, y), '🐹', font=font, embedded_color=True)
+        for font_path in [
+            '/System/Library/Fonts/Apple Color Emoji.ttc',
+            '/System/Library/Fonts/AppleColorEmoji.ttf',
+        ]:
+            if Path(font_path).exists():
+                font = ImageFont.truetype(font_path, 52)
+                bbox = d.textbbox((0, 0), '🐹', font=font, embedded_color=True)
+                x = (size - (bbox[2] - bbox[0])) // 2 - bbox[0]
+                y = (size - (bbox[3] - bbox[1])) // 2 - bbox[1]
+                d.text((x, y), '🐹', font=font, embedded_color=True)
+                break
+        else:
+            raise FileNotFoundError('Apple Color Emoji 폰트 없음')
     except Exception:
         # 폴백: 손그림 햄스터 얼굴
         d.ellipse([ 2,  2, 62, 62], fill=(180, 130,  80, 255))
@@ -337,16 +356,15 @@ def _rgba_to_chroma(img: Image.Image, size: tuple) -> ImageTk.PhotoImage:
     """
     RGBA → 크로마키 배경 합성 PhotoImage.
     알파 임계처리(128)로 반투명 픽셀을 완전 투명으로 처리 → 핑크 테두리 방지.
+    macOS Tk 8.6.9+: -transparentcolor 속성으로 CHROMA 색이 투명하게 처리됨.
     """
     if img.size != size:
         img = img.resize(size, Image.LANCZOS)
     r, g, b, a = img.split()
-    # 반투명 픽셀 → 완전 투명(0) or 불투명(255) 으로 이분화
     a_clean = a.point(lambda v: 0 if v < 128 else 255)
     bg = Image.new('RGB', size, CHROMA_RGB)
     bg.paste(Image.merge('RGB', (r, g, b)), mask=a_clean)
     return ImageTk.PhotoImage(bg)
-
 
 
 def load_gif_frames(gif_path: Path, size: tuple) -> list:
@@ -409,7 +427,7 @@ class GifPet:
         self._load_pet()
 
     def _register_default_pet(self):
-        """번들된 default_pet/ GIF를 AppData에 복사하고 레지스트리에 등록."""
+        """번들된 default_pet/ GIF를 앱 지원 디렉터리에 복사하고 레지스트리에 등록."""
         import shutil
         from pet_registry import load_registry, save_registry, _pets_dir, ACTIONS
 
@@ -418,7 +436,6 @@ class GifPet:
         dst_dir = _pets_dir(get_app_dir()) / pet_id
         dst_dir.mkdir(parents=True, exist_ok=True)
 
-        # 파일명 패턴: claude-pixel-{action}.gif → {action}.gif
         actions: dict[str, str] = {}
         for action in ACTIONS:
             src = src_dir / f'claude-pixel-{action}.gif'
@@ -431,7 +448,6 @@ class GifPet:
             return
 
         reg = load_registry(get_app_dir())
-        # 이미 있으면 스킵 (재등록 방지)
         if any(p['id'] == pet_id for p in reg['pets']):
             return
         reg['pets'].insert(0, {
@@ -470,7 +486,6 @@ class GifPet:
         )
 
     def _set_action(self, action: str):
-        """현재 액션 설정. 없으면 첫 번째로 폴백. 동일 액션이면 프레임 유지."""
         prev = self.current_action
         if action in self.action_frames:
             self.current_action = action
@@ -485,8 +500,21 @@ class GifPet:
     # ── 윈도우 초기화 ─────────────────────────────────────────────────────────
     def _init_window(self):
         self.root = tk.Tk()
+
+        # macOS: tk.Tk() 생성 후 NSApp 초기화되므로 이 시점에 호출
+        try:
+            import AppKit
+            AppKit.NSApp.setActivationPolicy_(
+                AppKit.NSApplicationActivationPolicyAccessory
+            )
+        except Exception:
+            pass
+
         self.root.overrideredirect(True)
         self.root.wm_attributes('-topmost', True)
+
+        # macOS Tk 8.6.9+: -transparentcolor 속성으로 CHROMA 색을 투명 처리
+        # Windows와 동일한 크로마키 방식으로 투명 오버레이 구현
         self.root.wm_attributes('-transparentcolor', CHROMA)
         self.root.configure(bg=CHROMA)
         self.root.resizable(False, False)
@@ -510,9 +538,11 @@ class GifPet:
         self.canvas.bind('<ButtonPress-1>',   self._drag_start)
         self.canvas.bind('<B1-Motion>',       self._drag_move)
         self.canvas.bind('<ButtonRelease-1>', self._on_click_release)
+        # macOS: 오른쪽 클릭은 Button-2 또는 Button-3 (트랙패드/마우스 환경 모두 대응)
+        self.canvas.bind('<Button-2>',        self._show_context_menu)
         self.canvas.bind('<Button-3>',        self._show_context_menu)
 
-        self._heart_pts_cache: dict = {}  # size → 정규화된 하트 좌표 캐시
+        self._heart_pts_cache: dict = {}
 
         # 호버 시 포인터 커서
         self.canvas.bind('<Enter>', lambda e: self.canvas.config(cursor='hand2'))
@@ -520,7 +550,7 @@ class GifPet:
 
         self.root.after(50,  self._animate)
         self.root.after(200, self._check_hover)
-        self.root.after(500, self._reschedule_idle)  # 초기 idle 타이머
+        self.root.after(500, self._reschedule_idle)
 
     def _reposition(self):
         """저장된 위치가 있으면 복원, 없으면 기본값(우측 하단)"""
@@ -544,20 +574,19 @@ class GifPet:
         self.root.geometry(f'+{x}+{y}')
 
     def _drag_end(self, event):
-        self._ground_y = None  # 이동했으므로 다음 점프 시 갱신
+        self._ground_y = None
         update_config(x=self.root.winfo_x(), y=self.root.winfo_y())
 
     def _on_click_release(self, event):
         dx = abs(event.x_root - (self.root.winfo_x() + self._drag_x))
         dy = abs(event.y_root - (self.root.winfo_y() + self._drag_y))
-        if dx < 5 and dy < 5:   # 드래그 아닌 클릭
+        if dx < 5 and dy < 5:
             self._spawn_heart(event.x, event.y)
             self._try_action('waving', 600)
         else:
             self._drag_end(event)
 
     def _heart_polygon(self, cx: int, cy: int, size: int) -> list:
-        """파라메트릭 하트 곡선 좌표 반환 (캔버스 절대 좌표). 크기별 캐시."""
         if size not in self._heart_pts_cache:
             steps = 80
             pad   = size * 0.05
@@ -576,7 +605,6 @@ class GifPet:
                      (size - pad*2) / (mx_y - mn_y))
             ox = pad + ((size - pad*2) - (mx_x - mn_x) * sc) / 2
             oy = pad + ((size - pad*2) - (mx_y - mn_y) * sc) / 2
-            # 원점 기준 정규화 좌표 저장
             self._heart_pts_cache[size] = [
                 (ox + (px - mn_x) * sc - size/2,
                  oy + (py - mn_y) * sc - size/2)
@@ -591,14 +619,14 @@ class GifPet:
         size   = max(10, self._display_size // 6)
         pos    = [cx, cy - size // 2]
 
-        pts     = self._heart_polygon(pos[0], pos[1], size)
+        pts = self._heart_polygon(pos[0], pos[1], size)
         now = time.time()
-        if now - self._last_heart_time < 0.2:   # 200ms 쿨다운
+        if now - self._last_heart_time < 0.2:
             return
         self._last_heart_time = now
 
-        brightness = random.randint(4, 10) / 10   # 40~100% 밝기 랜덤 (10% 단위)
-        item    = self.canvas.create_polygon(pts, fill='#dc1432', outline='', smooth=False)
+        brightness = random.randint(4, 10) / 10
+        item = self.canvas.create_polygon(pts, fill='#dc1432', outline='', smooth=False)
 
         step = 0
 
@@ -607,6 +635,7 @@ class GifPet:
             if step >= FRAMES:
                 self.canvas.delete(item)
                 return
+            # CHROMA_RGB로 블렌딩하여 크로마키 배경으로 자연스럽게 페이드
             t      = brightness * (1.0 - step / FRAMES)
             r_val  = int(220 * t + CHROMA_RGB[0] * (1 - t))
             g_val  = int(20  * t + CHROMA_RGB[1] * (1 - t))
@@ -626,14 +655,12 @@ class GifPet:
         if not self.running:
             return
         if self.visible and self.frames:
-            # 항상 현재 프레임 렌더 (정지 모드에서도 gif가 보이도록)
             frame = self.frames[self.current_frame]
             if self._canvas_img_id is None:
                 self._canvas_img_id = self.canvas.create_image(0, 0, anchor='nw', image=frame)
             else:
                 self.canvas.itemconfigure(self._canvas_img_id, image=frame)
 
-            # 정지 모드: 타이핑 없으면 프레임 고정, 100ms 간격으로 폴링
             if self._base_delay == 0:
                 elapsed = time.time() - self._last_key_time
                 if elapsed > 0.3:
@@ -646,8 +673,6 @@ class GifPet:
             self.root.after(IDLE_DELAY, self._animate)
 
     def _frame_delay(self) -> int:
-        """running 액션일 때만 타이핑에 반응해 빨라지고, 나머지는 기본 속도 고정.
-        정지 모드(base_delay=0)일 때는 최고 속도(20ms) 고정."""
         if self._base_delay == 0:
             elapsed = time.time() - self._last_key_time
             speed   = math.exp(-elapsed * math.log(2) / DECAY_HALF_LIFE)
@@ -661,8 +686,6 @@ class GifPet:
 
     # ── 액션 제어 ─────────────────────────────────────────────────────────────
     def _try_action(self, action: str, hold_ms: int = 0):
-        """우선순위·hold 기반 액션 전환.
-        hold 중이면 현재보다 낮은 우선순위는 무시, 같거나 높으면 교체."""
         now     = time.time()
         new_pri = ACTION_PRIORITY.get(action, 0)
         cur_pri = ACTION_PRIORITY.get(self.current_action, 0)
@@ -677,8 +700,6 @@ class GifPet:
         """점프 애니메이션: 착지 완료 후에만 다음 점프 허용."""
         if self._is_jumping:
             return
-
-        # 드래그/이동 후 첫 점프일 때만 현재 위치를 ground로 갱신
         if self._ground_y is None:
             self._ground_y = self.root.winfo_y()
 
@@ -697,7 +718,6 @@ class GifPet:
         self._jump_return_id = self.root.after(250, _land)
 
     def _reschedule_idle(self):
-        """키 입력마다 idle/waiting 타이머 재설정."""
         for attr in ('_idle_after_id', '_wait_after_id'):
             aid = getattr(self, attr, None)
             if aid:
@@ -715,7 +735,6 @@ class GifPet:
         self._set_action('waiting')
 
     def _check_hover(self):
-        """150ms마다 마우스 위치 확인 → review 액션 전환."""
         if not self.running:
             return
         try:
@@ -740,7 +759,6 @@ class GifPet:
         self.root.after(150, self._check_hover)
 
     def _arrow_move(self, direction: str):
-        """방향키: 해당 방향 액션 + 위치 이동 (루프에서 호출)."""
         x = self.root.winfo_x()
         y = self.root.winfo_y()
         s = self._display_size
@@ -754,7 +772,7 @@ class GifPet:
             mx0, _, mx1, _ = _monitor_work_area(cx, y + s // 2)
             new_x = max(mx0, min(new_x, mx1 - s))
             self.root.geometry(f'+{new_x}+{y}')
-        else:  # up / down
+        else:
             step  = -MOVE_STEP_PX if direction == 'up' else MOVE_STEP_PX
             new_y = y + step
             _, my0, _, my1 = _monitor_work_area(x + s // 2, new_y + s // 2)
@@ -762,24 +780,21 @@ class GifPet:
             self.root.geometry(f'+{x}+{new_y}')
 
     def _start_arrow(self, direction: str):
-        """방향키 누름: 방향 추가 후 루프 시작."""
         self._held_arrows.add(direction)
         if not self._arrow_loop_active:
             self._arrow_loop_active = True
             self._arrow_loop()
 
     def _stop_arrow(self, direction: str):
-        """방향키 뗌: 방향 제거, 모두 떼면 idle로."""
         self._held_arrows.discard(direction)
         if not self._held_arrows:
             self._arrow_loop_active = False
             self._action_hold_until = 0.0
             self._set_action('idle')
-            self._ground_y = None  # 이동했으므로 다음 점프 시 갱신
+            self._ground_y = None
             update_config(x=self.root.winfo_x(), y=self.root.winfo_y())
 
     def _arrow_loop(self):
-        """꾹 누르는 동안 30ms마다 이동."""
         if not self._arrow_loop_active or not self.running:
             return
         for d in list(self._held_arrows):
@@ -791,7 +806,7 @@ class GifPet:
         now = time.time()
 
         def dispatch():
-            self._last_key_time = now   # 메인 스레드에서 안전하게 쓰기
+            self._last_key_time = now
             if key == kb.Key.right:
                 self._start_arrow('right')
             elif key == kb.Key.left:
@@ -805,13 +820,13 @@ class GifPet:
             elif key == kb.Key.backspace:
                 self._try_action('failed', 700)
             else:
-                ch  = getattr(key, 'char', None)
-                vk  = getattr(key, 'vk', None)
-                # ㅠ = 'b'(VK 66), ㅜ = 'n'(VK 78) — Korean IME는 char 대신 VK로 판별
+                ch = getattr(key, 'char', None)
+                # macOS IME: char로 한국어 문자 반환 (VK 코드 불필요)
+                # ㅠ/ㅜ가 char로 전달되지 않는 IME 환경을 위해 KeyCode도 확인
+                vk = getattr(key, 'vk', None)
                 is_cry = (ch in ('ㅠ', 'ㅜ') or
-                          vk in (66, 78) or
-                          (ch and ch.lower() in ('b', 'n')))
-                key_id = vk or ch   # 연속 감지용 식별자
+                          (ch and ch.lower() in ('b', 'n')))  # 영문 키보드에서 동일 물리키
+                key_id = vk or ch
                 if is_cry:
                     if (key_id == self._last_char and
                             now - self._last_char_time < 0.5):
@@ -864,10 +879,13 @@ class GifPet:
         self.tray = pystray.Icon(
             'GifPet', create_tray_icon_image(), 'GifPet', menu
         )
-        threading.Thread(target=self.tray.run, daemon=True).start()
+        # macOS: run_detached()는 비블로킹으로 메뉴바 아이콘을 실행
+        try:
+            self.tray.run_detached()
+        except AttributeError:
+            threading.Thread(target=self.tray.run, daemon=True).start()
 
     def _iter_pet_menu_items(self):
-        """펫 변경 서브메뉴 – 열릴 때마다 레지스트리에서 동적으로 생성"""
         from pet_registry import load_registry
         reg = load_registry(get_app_dir())
         pets = reg.get('pets', [])
@@ -933,7 +951,6 @@ class GifPet:
         return pystray.Menu(*items)
 
     def _set_speed(self, base_delay: int):
-        # pystray 스레드 → 메인 스레드에서 상태 변경
         def _apply():
             self._base_delay = base_delay
         self.root.after(0, _apply)
@@ -944,7 +961,6 @@ class GifPet:
         self.root.after(0, lambda: self._apply_size(size))
 
     def _apply_size(self, size: int):
-        """크기 변경 (메인 스레드에서 실행)"""
         import tkinter.messagebox as mb
         prev_size = self._display_size
         self._display_size = size
@@ -961,7 +977,7 @@ class GifPet:
     def _toggle(self, *_):
         self.visible = not self.visible
         if self.visible:
-            self.root.after(0, self.root.deiconify)   # _animate는 IDLE 루프에서 자동 재개
+            self.root.after(0, self.root.deiconify)
         else:
             self.root.after(0, self.root.withdraw)
 
@@ -977,7 +993,6 @@ class GifPet:
         self.root.after(0, _do_reload)
 
     def _show_context_menu(self, event):
-        """펫 위 우클릭 → 커스텀 메뉴 (그림자 없음)"""
         from pet_registry import load_registry
 
         speed_sub = [
@@ -1022,7 +1037,8 @@ class GifPet:
     def _quit(self, *_):
         self.running = False
         def _do_quit():
-            self.tray.stop()
+            try: self.tray.stop()
+            except Exception: pass
             self.root.destroy()
         self.root.after(0, _do_quit)
 

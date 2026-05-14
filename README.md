@@ -1,16 +1,29 @@
-# GifPet for Windows
+# GifPet for macOS
 
-타이핑할수록 신나게 춤추는 GIF 오버레이 (Windows)
+타이핑할수록 신나게 춤추는 GIF 오버레이 (macOS)
 
 화면 위에 항상 떠 있으며, 키보드 입력·마우스 동작에 따라 펫이 실시간으로 반응합니다.
 
-## 설치
+## 요구사항
 
-[Releases](../../releases) 에서 `GifPet_Setup_v1.4.0.exe` 다운로드 후 실행
+- macOS 12 Monterey 이상 권장
+- Python 3.10+
 
-- Python 등 별도 설치 불필요
-- Windows 전용
-- 설치 중 **"Windows 시작 시 자동 실행"** 체크 시 부팅마다 자동 시작
+## 설치 및 실행
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+### 접근성 권한 허용 (필수)
+
+pynput이 전역 키보드 이벤트를 수신하려면 **접근성 권한**이 필요합니다.
+
+1. **시스템 설정** → **개인 정보 보호 및 보안** → **손쉬운 사용**
+2. Python (또는 터미널 앱) 을 목록에 추가하고 활성화
+
+권한 없이 실행 시 키보드·마우스 이벤트가 감지되지 않습니다.
 
 ## 기능
 
@@ -22,7 +35,7 @@
 - 마우스 호버 시 포인터 변경
 - codex-pets.net URL 또는 로컬 GIF 폴더로 펫 등록·관리
 - 기본 속도 / 크기 조절 (설정 자동 저장)
-- 시스템 트레이 아이콘 + 우클릭 컨텍스트 메뉴
+- 메뉴바 트레이 아이콘 + 우클릭 컨텍스트 메뉴
 
 ## 액션
 
@@ -47,7 +60,7 @@
 
 ### 펫 등록
 
-트레이 아이콘 우클릭 → **GIF 등록...**
+트레이 아이콘 우클릭 (또는 Control+클릭) → **GIF 등록...**
 
 **URL 등록** (codex-pets.net)
 1. [codex-pets.net](https://codex-pets.net) 에서 원하는 펫 URL 복사
@@ -60,8 +73,6 @@
 ### 펫 관리
 
 트레이 아이콘 우클릭 → **등록 목록 관리...**
-- 등록된 펫 목록 조회
-- 이름 변경 / 삭제 (기본 펫 제외)
 
 ### 트레이 메뉴
 
@@ -75,17 +86,19 @@
 | 등록 목록 관리... | 이름 변경 / 삭제 |
 | 종료 | 앱 종료 |
 
-## 개발 환경에서 실행
+## 빌드 (PyInstaller)
 
 ```bash
-pip install -r requirements.txt
-python main.py
-```
-
-### 빌드
-
-```bash
-pip install -r requirements-build.txt
+pip install pyinstaller
 python -m PyInstaller --clean -y GifPet.spec
-# 이후 Inno Setup으로 setup.iss 컴파일
 ```
+
+빌드 결과물은 `dist/GifPet.app` 입니다.
+
+## 설정 저장 위치
+
+`~/Library/Application Support/GifPet/`
+
+## Windows 버전
+
+→ [gifpet-for-windows](https://github.com/seorinn/gifpet-for-windows)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GIF 펫 등록 / 목록 관리 다이얼로그 — 모던 UI"""
+"""GIF 펫 등록 / 목록 관리 다이얼로그 — 모던 UI (macOS)"""
 
 import threading
 import tkinter as tk
@@ -17,10 +17,10 @@ TEXT    = '#18181b'
 MUTED   = '#71717a'
 DANGER  = '#ef4444'
 
-F       = ('Segoe UI', 9)
-F_SM    = ('Segoe UI', 8)
-F_BOLD  = ('Segoe UI', 9, 'bold')
-F_TITLE = ('Segoe UI', 10, 'bold')
+F       = ('Helvetica Neue', 10)
+F_SM    = ('Helvetica Neue', 9)
+F_BOLD  = ('Helvetica Neue', 10, 'bold')
+F_TITLE = ('Helvetica Neue', 11, 'bold')
 
 
 def _center(win):
@@ -70,7 +70,7 @@ class RegisterDialog(tk.Toplevel):
         super().__init__(parent)
         self.app_dir    = app_dir
         self.on_complete = on_complete
-        self._tab       = 'codex'      # 'codex' | 'local'
+        self._tab       = 'codex'
 
         self.title('펫 추가')
         self.configure(bg=BG)
@@ -84,21 +84,17 @@ class RegisterDialog(tk.Toplevel):
         self.bind('<Escape>', lambda _: self.destroy())
         self._name_entry.focus_set()
 
-    # ── 레이아웃 ──────────────────────────────────────────────────────────────
     def _build(self):
         root = tk.Frame(self, bg=BG, padx=24, pady=20)
         root.pack(fill='both', expand=True)
 
-        # 제목
         _lbl(root, '펫 추가', color=TEXT, font=F_TITLE).pack(anchor='w', pady=(0, 14))
 
-        # 이름
         _lbl(root, '이름').pack(anchor='w', pady=(0, 3))
         self._name_var = tk.StringVar()
         nw, self._name_entry = _entry(root, self._name_var, width=38)
         nw.pack(fill='x', pady=(0, 16))
 
-        # 탭 스위처
         tab_row = tk.Frame(root, bg=BG)
         tab_row.pack(fill='x')
         self._tab_btns: dict[str, tk.Button] = {}
@@ -113,10 +109,8 @@ class RegisterDialog(tk.Toplevel):
             self._tab_btns[key] = b
         self._update_tabs()
 
-        # 탭 구분선
         tk.Frame(root, bg=BORDER, height=1).pack(fill='x', pady=(0, 14))
 
-        # 콘텐츠 컨테이너
         self._content = tk.Frame(root, bg=BG)
         self._content.pack(fill='x')
 
@@ -137,7 +131,7 @@ class RegisterDialog(tk.Toplevel):
         uw.pack(fill='x')
         _lbl(self._url_panel, '예: https://codex-pets.net/#/pets/needle',
              color='#a1a1aa').pack(anchor='w', pady=(4, 0))
-        self._url_panel.pack(fill='x')   # 초기 표시
+        self._url_panel.pack(fill='x')
 
         # ── 로컬 패널 ──
         self._local_panel = tk.Frame(self._content, bg=BG)
@@ -151,9 +145,7 @@ class RegisterDialog(tk.Toplevel):
         fw, self._folder_entry = _entry(folder_row, self._folder_var, width=28)
         fw.pack(side='left', fill='x', expand=True)
         _btn(folder_row, '찾기', self._browse).pack(side='left', padx=(6, 0))
-        # 초기 숨김 (pack하지 않음)
 
-        # 진행 상태
         self._status_var = tk.StringVar()
         self._status_lbl = tk.Label(
             root, textvariable=self._status_var,
@@ -166,14 +158,12 @@ class RegisterDialog(tk.Toplevel):
         self._progress.pack(fill='x')
         self._progress.pack_forget()
 
-        # 버튼 행
         btn_row = tk.Frame(root, bg=BG)
         btn_row.pack(fill='x', pady=(14, 0))
         self._submit_btn = _btn(btn_row, '등록', self._submit, primary=True)
         self._submit_btn.pack(side='right')
         _btn(btn_row, '취소', self.destroy).pack(side='right', padx=(0, 8))
 
-    # ── 탭 전환 ───────────────────────────────────────────────────────────────
     def _switch(self, key: str):
         self._tab = key
         self._update_tabs()
@@ -193,13 +183,11 @@ class RegisterDialog(tk.Toplevel):
                 font=F_BOLD if active else F,
             )
 
-    # ── 폴더 찾기 ─────────────────────────────────────────────────────────────
     def _browse(self):
         p = filedialog.askdirectory(parent=self, title='GIF 폴더 선택')
         if p:
             self._folder_var.set(p)
 
-    # ── 제출 ──────────────────────────────────────────────────────────────────
     def _submit(self):
         if str(self._submit_btn['state']) == 'disabled':
             return
@@ -282,7 +270,6 @@ class ManagePetsDialog(tk.Toplevel):
         _center(self)
         self.bind('<Escape>', lambda _: self.destroy())
 
-    # ── 레이아웃 ──────────────────────────────────────────────────────────────
     def _build(self):
         self.minsize(400, 0)
 
@@ -316,16 +303,13 @@ class ManagePetsDialog(tk.Toplevel):
         for pet in pets:
             self._pet_row(pet, pet['id'] == reg.get('active'))
 
-    # ── 펫 행 ─────────────────────────────────────────────────────────────────
     def _pet_row(self, pet: dict, is_active: bool):
         container = tk.Frame(self._list_wrap, bg=BG)
         container.pack(fill='x', pady=3)
 
-        # ── view 모드 ──────────────────────────────────────────────────────────
         view = tk.Frame(container, bg=BG)
         view.pack(fill='x')
 
-        # 오른쪽 버튼을 먼저 pack해야 expand 위젯에 밀리지 않음
         is_default = pet.get('source') == 'default'
         v_right = tk.Frame(view, bg=BG)
         v_right.pack(side='right')
@@ -335,7 +319,6 @@ class ManagePetsDialog(tk.Toplevel):
             _btn(v_right, '삭제', lambda pid=pet['id']: self._delete(pid),
                  danger=True, padx=8, pady=3).pack(side='left')
 
-        # 왼쪽: 활성 dot + 이름 (오른쪽 이후에 pack)
         v_left = tk.Frame(view, bg=BG)
         v_left.pack(side='left', fill='x', expand=True)
         tk.Frame(v_left, bg=ACCENT if is_active else BORDER,
@@ -343,7 +326,6 @@ class ManagePetsDialog(tk.Toplevel):
         tk.Label(v_left, text=pet['name'], bg=BG, fg=TEXT,
                  font=F_BOLD, anchor='w').pack(side='left')
 
-        # ── edit 모드 (기본 펫은 생략) ────────────────────────────────────────
         if not is_default:
             edit = tk.Frame(container, bg=BG)
 
@@ -386,7 +368,6 @@ class ManagePetsDialog(tk.Toplevel):
             entry.bind('<Return>', do_save)
             entry.bind('<Escape>', do_cancel)
 
-    # ── 이름 변경 / 삭제 ──────────────────────────────────────────────────────
     def _rename(self, pet_id: str, new_name: str):
         from pet_registry import save_registry
         reg = load_registry(self.app_dir)
