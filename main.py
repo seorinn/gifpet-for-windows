@@ -45,6 +45,22 @@ SIZE_OPTIONS = [30, 55, 80, 120, 170]
 DEFAULT_BASE_DELAY = 200
 DEFAULT_SIZE       = 80
 
+# ── 액션 시스템 ───────────────────────────────────────────────────────────────
+ACTION_PRIORITY = {
+    'waving':        5,
+    'jumping':       4,
+    'running-right': 3,
+    'running-left':  3,
+    'failed':        3,
+    'running':       2,
+    'review':        1,
+    'idle':          0,
+    'waiting':       0,
+}
+IDLE_TIMEOUT_MS    = 5_000    # 5초 무입력 → idle
+WAITING_TIMEOUT_MS = 30_000   # 30초 무입력 → waiting
+MOVE_STEP_PX       = 12       # 방향키 1회 이동 거리(px)
+
 
 # ── 경로 헬퍼 ─────────────────────────────────────────────────────────────────
 def get_app_dir() -> Path:
@@ -53,10 +69,10 @@ def get_app_dir() -> Path:
     return path
 
 
-def get_bundled_resource(filename: str) -> Path:
-    if getattr(sys, 'frozen', False):
-        return Path(sys._MEIPASS) / filename
-    return Path(__file__).parent / filename
+def get_bundled_dir(subdir: str) -> Path:
+    """번들(exe) 또는 소스 실행 시 모두 동작하는 리소스 디렉터리 경로."""
+    base = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else Path(__file__).parent
+    return base / subdir
 
 
 def get_workarea() -> tuple:
@@ -132,15 +148,26 @@ class _CtxMenu(tk.Toplevel):
     ACC   = '#6366f1'
     F     = ('Segoe UI', 8)
 
-    def __init__(self, root_win: tk.Tk, items: list, x: int, y: int, _on_close=None):
+    def __init__(self, root_win: tk.Tk, items: list, x: int, y: int,
+                 _on_close=None, _top_menu=None):
         super().__init__(root_win)
         self.overrideredirect(True)
         self.wm_attributes('-topmost', True)
         self.configure(bg='#cccccc')          # 외곽 1px 테두리색
 
-        self._root = root_win
-        self._sub  = None
-        self._on_close = _on_close
+        self._root      = root_win
+        self._sub       = None
+        self._on_close  = _on_close
+        self._top_menu  = _top_menu or self   # 최상위 메뉴 참조
+        self._closed    = False
+        self._mouse_lst = None
+
+        # 최상위 메뉴만 전역 마우스 리스너 등록
+        if _top_menu is None:
+            import pynput.mouse as _m
+            self._mouse_lst = _m.Listener(on_click=self._on_global_click)
+            self._mouse_lst.daemon = True
+            self._mouse_lst.start()
 
         # 화면 밖에 먼저 렌더링하여 크기 확정 후 정확한 위치로 이동
         self.geometry('+9999+9999')
@@ -162,6 +189,20 @@ class _CtxMenu(tk.Toplevel):
 
         self._bid = root_win.bind('<Button-1>', self._outside, add='+')
         self.bind('<Escape>', lambda _: self._close())
+
+    def _on_global_click(self, x, y, button, pressed):
+        if not pressed:
+            return
+        # 메뉴 영역 안 클릭이면 tkinter에 맡기고 무시
+        for win in self._top_menu._all():
+            try:
+                if (win.winfo_rootx() <= x <= win.winfo_rootx() + win.winfo_width() and
+                        win.winfo_rooty() <= y <= win.winfo_rooty() + win.winfo_height()):
+                    return
+            except Exception:
+                pass
+        # 메뉴 밖 클릭이면 닫기
+        self._root.after(0, self._top_menu._close)
 
     # ── 위치 확정 ─────────────────────────────────────────────────────────────
     def _reposition(self):
@@ -214,7 +255,7 @@ class _CtxMenu(tk.Toplevel):
 
         def click(_):
             if cmd:
-                self._close()
+                self._top_menu._close()   # 최상위부터 전체 닫기
                 cmd()
 
         for w in parts:
@@ -228,7 +269,8 @@ class _CtxMenu(tk.Toplevel):
         ax = anchor.winfo_rootx() + anchor.winfo_width() + 2
         ay = anchor.winfo_rooty() - 3
         self._sub = _CtxMenu(self._root, items, ax, ay,
-                             _on_close=lambda: setattr(self, '_sub', None))
+                             _on_close=lambda: setattr(self, '_sub', None),
+                             _top_menu=self._top_menu)
 
     def _close_sub(self):
         if self._sub:
@@ -238,7 +280,13 @@ class _CtxMenu(tk.Toplevel):
 
     # ── 닫기 ──────────────────────────────────────────────────────────────────
     def _close(self):
+        if self._closed:
+            return
+        self._closed = True
         self._close_sub()
+        if self._mouse_lst:
+            try: self._mouse_lst.stop()
+            except Exception: pass
         try: self._root.unbind('<Button-1>', self._bid)
         except Exception: pass
         if self._on_close: self._on_close()
@@ -308,7 +356,7 @@ def load_gif_frames(gif_path: Path, size: tuple) -> list:
         for i in range(n):
             gif.seek(i)
             frames.append(_rgba_to_chroma(gif.copy().convert('RGBA'), size))
-    return frames if frames else []
+    return frames
 
 
 # ── 메인 앱 ──────────────────────────────────────────────────────────────────
@@ -331,14 +379,71 @@ class GifPet:
         self._drag_y = 0
         self._last_heart_time: float = 0.0
 
+        self._action_hold_until: float   = 0.0
+        self._is_hovering:       bool    = False
+        self._idle_after_id:     str | None = None
+        self._wait_after_id:     str | None = None
+        self._last_char:         str | None = None
+        self._last_char_time:    float   = 0.0
+        self._held_arrows:       set     = set()
+        self._arrow_loop_active: bool    = False
+        self._ground_y:          int | None = None
+        self._is_jumping:        bool    = False
+        self._jump_return_id:    str | None = None
+
         self._init_window()
-        self._load_pet()
         self._init_tray()
         self._init_keyboard()
+        self._load_pet_safe()
 
     # ── 펫 로드 ──────────────────────────────────────────────────────────────
+    def _load_pet_safe(self):
+        """초기 로드 – 등록된 펫 없으면 기본 펫(claude) 자동 등록 후 로드."""
+        from pet_registry import load_registry
+        reg = load_registry(get_app_dir())
+        if not reg.get('pets'):
+            try:
+                self._register_default_pet()
+            except Exception:
+                pass
+        self._load_pet()
+
+    def _register_default_pet(self):
+        """번들된 default_pet/ GIF를 AppData에 복사하고 레지스트리에 등록."""
+        import shutil
+        from pet_registry import load_registry, save_registry, _pets_dir, ACTIONS
+
+        src_dir = get_bundled_dir('default_pet')
+        pet_id  = 'claude-default'
+        dst_dir = _pets_dir(get_app_dir()) / pet_id
+        dst_dir.mkdir(parents=True, exist_ok=True)
+
+        # 파일명 패턴: claude-pixel-{action}.gif → {action}.gif
+        actions: dict[str, str] = {}
+        for action in ACTIONS:
+            src = src_dir / f'claude-pixel-{action}.gif'
+            if src.exists():
+                dst = dst_dir / f'{action}.gif'
+                shutil.copy2(src, dst)
+                actions[action] = str(dst)
+
+        if not actions:
+            return
+
+        reg = load_registry(get_app_dir())
+        # 이미 있으면 스킵 (재등록 방지)
+        if any(p['id'] == pet_id for p in reg['pets']):
+            return
+        reg['pets'].insert(0, {
+            'name': 'Default', 'id': pet_id,
+            'source': 'default', 'actions': actions,
+        })
+        if reg['active'] is None:
+            reg['active'] = pet_id
+        save_registry(get_app_dir(), reg)
+
     def _load_pet(self):
-        """레지스트리의 활성 펫을 로드. 없으면 pet.gif 폴백."""
+        """레지스트리의 활성 펫을 로드."""
         from pet_registry import get_active_pet
         size = (self._display_size, self._display_size)
 
@@ -360,26 +465,13 @@ class GifPet:
                 self._set_action('idle')
                 return
 
-        # 폴백: pet.gif (기존 방식)
-        for candidate in [get_app_dir() / 'pet.gif',
-                          get_bundled_resource('pet.gif')]:
-            if candidate.exists():
-                try:
-                    frames = load_gif_frames(candidate, size)
-                    if frames:
-                        self.action_frames = {'idle': frames}
-                        self._current_pet_id = None
-                        self._set_action('idle')
-                        return
-                except Exception:
-                    pass
-
         raise RuntimeError(
             '표시할 GIF가 없습니다.\n트레이 메뉴 > GIF 등록... 으로 펫을 추가해 주세요.'
         )
 
     def _set_action(self, action: str):
-        """현재 액션 설정. 없으면 첫 번째로 폴백."""
+        """현재 액션 설정. 없으면 첫 번째로 폴백. 동일 액션이면 프레임 유지."""
+        prev = self.current_action
         if action in self.action_frames:
             self.current_action = action
         elif self.action_frames:
@@ -387,7 +479,8 @@ class GifPet:
         else:
             self.current_action = 'idle'
         self.frames = self.action_frames.get(self.current_action, [])
-        self.current_frame = 0
+        if self.current_action != prev:
+            self.current_frame = 0
 
     # ── 윈도우 초기화 ─────────────────────────────────────────────────────────
     def _init_window(self):
@@ -407,6 +500,12 @@ class GifPet:
         self.canvas.pack()
         self._canvas_img_id = None
 
+        def _reset_canvas_img():
+            if self._canvas_img_id is not None:
+                self.canvas.delete(self._canvas_img_id)
+            self._canvas_img_id = None
+        self._reset_canvas_img = _reset_canvas_img
+
         # 드래그로 위치 이동 + 클릭 시 하트 + 우클릭 메뉴
         self.canvas.bind('<ButtonPress-1>',   self._drag_start)
         self.canvas.bind('<B1-Motion>',       self._drag_move)
@@ -415,7 +514,13 @@ class GifPet:
 
         self._heart_pts_cache: dict = {}  # size → 정규화된 하트 좌표 캐시
 
-        self.root.after(50, self._animate)
+        # 호버 시 포인터 커서
+        self.canvas.bind('<Enter>', lambda e: self.canvas.config(cursor='hand2'))
+        self.canvas.bind('<Leave>', lambda e: self.canvas.config(cursor=''))
+
+        self.root.after(50,  self._animate)
+        self.root.after(200, self._check_hover)
+        self.root.after(500, self._reschedule_idle)  # 초기 idle 타이머
 
     def _reposition(self):
         """저장된 위치가 있으면 복원, 없으면 기본값(우측 하단)"""
@@ -439,6 +544,7 @@ class GifPet:
         self.root.geometry(f'+{x}+{y}')
 
     def _drag_end(self, event):
+        self._ground_y = None  # 이동했으므로 다음 점프 시 갱신
         update_config(x=self.root.winfo_x(), y=self.root.winfo_y())
 
     def _on_click_release(self, event):
@@ -446,6 +552,7 @@ class GifPet:
         dy = abs(event.y_root - (self.root.winfo_y() + self._drag_y))
         if dx < 5 and dy < 5:   # 드래그 아닌 클릭
             self._spawn_heart(event.x, event.y)
+            self._try_action('waving', 600)
         else:
             self._drag_end(event)
 
@@ -539,22 +646,201 @@ class GifPet:
             self.root.after(IDLE_DELAY, self._animate)
 
     def _frame_delay(self) -> int:
-        """기본 속도에서 타이핑에 반응해 빨라지고, 멈추면 지수 감쇠로 복귀.
+        """running 액션일 때만 타이핑에 반응해 빨라지고, 나머지는 기본 속도 고정.
         정지 모드(base_delay=0)일 때는 최고 속도(20ms) 고정."""
+        if self._base_delay == 0:
+            elapsed = time.time() - self._last_key_time
+            speed   = math.exp(-elapsed * math.log(2) / DECAY_HALF_LIFE)
+            return int(80 + (1 - speed) * 60)
+        if self.current_action != 'running':
+            return self._base_delay
         elapsed = time.time() - self._last_key_time
         speed   = math.exp(-elapsed * math.log(2) / DECAY_HALF_LIFE)
-        if self._base_delay == 0:
-            return int(80 + (1 - speed) * 60)   # 타이핑 시 80ms, 감쇠하며 140ms
         min_d   = max(20, self._base_delay - SPEED_RANGE)
         return int(self._base_delay - speed * (self._base_delay - min_d))
 
+    # ── 액션 제어 ─────────────────────────────────────────────────────────────
+    def _try_action(self, action: str, hold_ms: int = 0):
+        """우선순위·hold 기반 액션 전환.
+        hold 중이면 현재보다 낮은 우선순위는 무시, 같거나 높으면 교체."""
+        now     = time.time()
+        new_pri = ACTION_PRIORITY.get(action, 0)
+        cur_pri = ACTION_PRIORITY.get(self.current_action, 0)
+        if now < self._action_hold_until and new_pri < cur_pri:
+            return
+        self._set_action(action)
+        self._action_hold_until = now + hold_ms / 1000.0 if hold_ms else 0.0
+        if action == 'jumping':
+            self._do_jump_anim()
+
+    def _do_jump_anim(self):
+        """점프 애니메이션: 착지 완료 후에만 다음 점프 허용."""
+        if self._is_jumping:
+            return
+
+        # 드래그/이동 후 첫 점프일 때만 현재 위치를 ground로 갱신
+        if self._ground_y is None:
+            self._ground_y = self.root.winfo_y()
+
+        ground = self._ground_y
+        self._is_jumping = True
+        self.root.geometry(f'+{self.root.winfo_x()}+{ground - 20}')
+
+        def _land():
+            self.root.geometry(f'+{self.root.winfo_x()}+{ground}')
+            self._jump_return_id = self.root.after(150, _allow)
+
+        def _allow():
+            self._is_jumping     = False
+            self._jump_return_id = None
+
+        self._jump_return_id = self.root.after(250, _land)
+
+    def _reschedule_idle(self):
+        """키 입력마다 idle/waiting 타이머 재설정."""
+        for attr in ('_idle_after_id', '_wait_after_id'):
+            aid = getattr(self, attr, None)
+            if aid:
+                try: self.root.after_cancel(aid)
+                except Exception: pass
+        self._idle_after_id = self.root.after(IDLE_TIMEOUT_MS,    self._force_idle)
+        self._wait_after_id = self.root.after(WAITING_TIMEOUT_MS,  self._force_waiting)
+
+    def _force_idle(self):
+        self._action_hold_until = 0.0
+        self._set_action('idle')
+
+    def _force_waiting(self):
+        self._action_hold_until = 0.0
+        self._set_action('waiting')
+
+    def _check_hover(self):
+        """150ms마다 마우스 위치 확인 → review 액션 전환."""
+        if not self.running:
+            return
+        try:
+            px = self.root.winfo_pointerx()
+            py = self.root.winfo_pointery()
+            wx = self.root.winfo_x()
+            wy = self.root.winfo_y()
+            s  = self._display_size
+            margin = 20
+            hovering = (wx - margin <= px <= wx + s + margin and
+                        wy - margin <= py <= wy + s + margin)
+            if hovering and not self._is_hovering:
+                self._is_hovering = True
+                self._try_action('review', 0)
+            elif not hovering and self._is_hovering:
+                self._is_hovering = False
+                if self.current_action == 'review':
+                    self._action_hold_until = 0.0
+                    self._set_action('idle')
+        except Exception:
+            pass
+        self.root.after(150, self._check_hover)
+
+    def _arrow_move(self, direction: str):
+        """방향키: 해당 방향 액션 + 위치 이동 (루프에서 호출)."""
+        x = self.root.winfo_x()
+        y = self.root.winfo_y()
+        s = self._display_size
+
+        if direction in ('right', 'left'):
+            action = 'running-right' if direction == 'right' else 'running-left'
+            self._try_action(action, 0)
+            step  = MOVE_STEP_PX if direction == 'right' else -MOVE_STEP_PX
+            new_x = x + step
+            cx    = new_x + s // 2
+            mx0, _, mx1, _ = _monitor_work_area(cx, y + s // 2)
+            new_x = max(mx0, min(new_x, mx1 - s))
+            self.root.geometry(f'+{new_x}+{y}')
+        else:  # up / down
+            step  = -MOVE_STEP_PX if direction == 'up' else MOVE_STEP_PX
+            new_y = y + step
+            _, my0, _, my1 = _monitor_work_area(x + s // 2, new_y + s // 2)
+            new_y = max(my0, min(new_y, my1 - s))
+            self.root.geometry(f'+{x}+{new_y}')
+
+    def _start_arrow(self, direction: str):
+        """방향키 누름: 방향 추가 후 루프 시작."""
+        self._held_arrows.add(direction)
+        if not self._arrow_loop_active:
+            self._arrow_loop_active = True
+            self._arrow_loop()
+
+    def _stop_arrow(self, direction: str):
+        """방향키 뗌: 방향 제거, 모두 떼면 idle로."""
+        self._held_arrows.discard(direction)
+        if not self._held_arrows:
+            self._arrow_loop_active = False
+            self._action_hold_until = 0.0
+            self._set_action('idle')
+            self._ground_y = None  # 이동했으므로 다음 점프 시 갱신
+            update_config(x=self.root.winfo_x(), y=self.root.winfo_y())
+
+    def _arrow_loop(self):
+        """꾹 누르는 동안 30ms마다 이동."""
+        if not self._arrow_loop_active or not self.running:
+            return
+        for d in list(self._held_arrows):
+            self._arrow_move(d)
+        self.root.after(200, self._arrow_loop)
+
     # ── 키보드 리스너 ─────────────────────────────────────────────────────────
     def _on_key_press(self, key):
-        self._last_key_time = time.time()
+        now = time.time()
+
+        def dispatch():
+            self._last_key_time = now   # 메인 스레드에서 안전하게 쓰기
+            if key == kb.Key.right:
+                self._start_arrow('right')
+            elif key == kb.Key.left:
+                self._start_arrow('left')
+            elif key == kb.Key.up:
+                self._start_arrow('up')
+            elif key == kb.Key.down:
+                self._start_arrow('down')
+            elif key in (kb.Key.space, kb.Key.enter, kb.Key.tab):
+                self._try_action('jumping', 400)
+            elif key == kb.Key.backspace:
+                self._try_action('failed', 700)
+            else:
+                ch  = getattr(key, 'char', None)
+                vk  = getattr(key, 'vk', None)
+                # ㅠ = 'b'(VK 66), ㅜ = 'n'(VK 78) — Korean IME는 char 대신 VK로 판별
+                is_cry = (ch in ('ㅠ', 'ㅜ') or
+                          vk in (66, 78) or
+                          (ch and ch.lower() in ('b', 'n')))
+                key_id = vk or ch   # 연속 감지용 식별자
+                if is_cry:
+                    if (key_id == self._last_char and
+                            now - self._last_char_time < 0.5):
+                        self._try_action('failed', 700)
+                    else:
+                        self._try_action('running', 300)
+                else:
+                    self._try_action('running', 300)
+                self._last_char      = key_id
+                self._last_char_time = now
+            self._reschedule_idle()
+
+        self.root.after(0, dispatch)
+
+    def _on_key_release(self, key):
+        _ARROW_MAP = {
+            kb.Key.right: 'right', kb.Key.left: 'left',
+            kb.Key.up:    'up',    kb.Key.down: 'down',
+        }
+        if key in _ARROW_MAP:
+            direction = _ARROW_MAP[key]
+            self.root.after(0, lambda d=direction: self._stop_arrow(d))
 
     def _init_keyboard(self):
         try:
-            self.listener = kb.Listener(on_press=self._on_key_press)
+            self.listener = kb.Listener(
+                on_press=self._on_key_press,
+                on_release=self._on_key_release,
+            )
             self.listener.daemon = True
             self.listener.start()
         except Exception:
@@ -572,9 +858,6 @@ class GifPet:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem('GIF 등록...',      self._open_register_dialog),
             pystray.MenuItem('등록 목록 관리...', self._open_manage_dialog),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem('GIF 폴더 열기',    self._open_gif_folder),
-            pystray.MenuItem('GIF 다시 불러오기', self._reload),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem('종료', self._quit),
         )
@@ -606,8 +889,8 @@ class GifPet:
         def _do():
             import tkinter.messagebox as mb
             try:
+                self._reset_canvas_img()
                 self._load_pet()
-                self._canvas_img_id = None
             except Exception as e:
                 mb.showerror('GifPet', f'펫 전환 실패: {e}')
         self.root.after(0, _do)
@@ -672,7 +955,7 @@ class GifPet:
             mb.showerror('GifPet', f'GIF 로드 실패: {e}')
             return
         self.canvas.config(width=size, height=size)
-        self._canvas_img_id = None
+        self._reset_canvas_img()
         self._reposition()
 
     def _toggle(self, *_):
@@ -682,16 +965,12 @@ class GifPet:
         else:
             self.root.after(0, self.root.withdraw)
 
-    def _open_gif_folder(self, *_):
-        import subprocess
-        subprocess.Popen(['explorer', str(get_app_dir())])
-
     def _reload(self, *_):
         def _do_reload():
             import tkinter.messagebox as mb
             try:
+                self._reset_canvas_img()
                 self._load_pet()
-                self._canvas_img_id = None
                 self._heart_pts_cache.clear()
             except Exception as e:
                 mb.showerror('GifPet', f'GIF 로드 실패: {e}')

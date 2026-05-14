@@ -122,9 +122,16 @@ class RegisterDialog(tk.Toplevel):
 
         # ── URL 패널 ──
         self._url_panel = tk.Frame(self._content, bg=BG)
-        _lbl(self._url_panel,
-             'codex-pets.net에서 원하는 펫 페이지 URL을 붙여넣으세요'
-             ).pack(anchor='w', pady=(0, 6))
+
+        top_row = tk.Frame(self._url_panel, bg=BG)
+        top_row.pack(fill='x', pady=(0, 6))
+        _lbl(top_row, 'codex-pets.net에서 원하는 펫 페이지 URL을 붙여넣으세요'
+             ).pack(side='left')
+        link = tk.Label(top_row, text='사이트 열기 →', bg=BG, fg=ACCENT,
+                        font=F_SM, cursor='hand2')
+        link.pack(side='right')
+        link.bind('<Button-1>', lambda _: __import__('webbrowser').open('https://codex-pets.net/'))
+
         self._url_var = tk.StringVar()
         uw, self._url_entry = _entry(self._url_panel, self._url_var, width=38)
         uw.pack(fill='x')
@@ -319,12 +326,14 @@ class ManagePetsDialog(tk.Toplevel):
         view.pack(fill='x')
 
         # 오른쪽 버튼을 먼저 pack해야 expand 위젯에 밀리지 않음
+        is_default = pet.get('source') == 'default'
         v_right = tk.Frame(view, bg=BG)
         v_right.pack(side='right')
-        rename_btn = _btn(v_right, '이름 변경', None, padx=8, pady=3)
-        rename_btn.pack(side='left', padx=(0, 6))
-        _btn(v_right, '삭제', lambda pid=pet['id']: self._delete(pid),
-             danger=True, padx=8, pady=3).pack(side='left')
+        if not is_default:
+            rename_btn = _btn(v_right, '이름 변경', None, padx=8, pady=3)
+            rename_btn.pack(side='left', padx=(0, 6))
+            _btn(v_right, '삭제', lambda pid=pet['id']: self._delete(pid),
+                 danger=True, padx=8, pady=3).pack(side='left')
 
         # 왼쪽: 활성 dot + 이름 (오른쪽 이후에 pack)
         v_left = tk.Frame(view, bg=BG)
@@ -334,50 +343,48 @@ class ManagePetsDialog(tk.Toplevel):
         tk.Label(v_left, text=pet['name'], bg=BG, fg=TEXT,
                  font=F_BOLD, anchor='w').pack(side='left')
 
-        # ── edit 모드 (초기 숨김) ──────────────────────────────────────────────
-        edit = tk.Frame(container, bg=BG)
+        # ── edit 모드 (기본 펫은 생략) ────────────────────────────────────────
+        if not is_default:
+            edit = tk.Frame(container, bg=BG)
 
-        # 오른쪽 버튼 먼저
-        e_right = tk.Frame(edit, bg=BG)
-        e_right.pack(side='right')
-        save_btn   = _btn(e_right, '저장', None, primary=True, padx=8, pady=3)
-        cancel_btn = _btn(e_right, '취소', None, padx=8, pady=3)
-        save_btn.pack(side='left', padx=(0, 6))
-        cancel_btn.pack(side='left')
+            e_right = tk.Frame(edit, bg=BG)
+            e_right.pack(side='right')
+            save_btn   = _btn(e_right, '저장', None, primary=True, padx=8, pady=3)
+            cancel_btn = _btn(e_right, '취소', None, padx=8, pady=3)
+            save_btn.pack(side='left', padx=(0, 6))
+            cancel_btn.pack(side='left')
 
-        # 왼쪽: dot + 입력창
-        e_left = tk.Frame(edit, bg=BG)
-        e_left.pack(side='left', fill='x', expand=True)
-        tk.Frame(e_left, bg=ACCENT if is_active else BORDER,
-                 width=6, height=6).pack(side='left', padx=(0, 10), pady=8)
-        var = tk.StringVar(value=pet['name'])
-        ew, entry = _entry(e_left, var, width=18)
-        ew.pack(side='left', fill='x', expand=True)
+            e_left = tk.Frame(edit, bg=BG)
+            e_left.pack(side='left', fill='x', expand=True)
+            tk.Frame(e_left, bg=ACCENT if is_active else BORDER,
+                     width=6, height=6).pack(side='left', padx=(0, 10), pady=8)
+            var = tk.StringVar(value=pet['name'])
+            ew, entry = _entry(e_left, var, width=18)
+            ew.pack(side='left', fill='x', expand=True)
 
-        # ── 콜백 ──────────────────────────────────────────────────────────────
-        def start_edit():
-            view.pack_forget()
-            var.set(pet['name'])
-            edit.pack(fill='x')
-            entry.focus_set()
-            entry.select_range(0, 'end')
+            def start_edit():
+                view.pack_forget()
+                var.set(pet['name'])
+                edit.pack(fill='x')
+                entry.focus_set()
+                entry.select_range(0, 'end')
 
-        def do_save(_=None):
-            new_name = var.get().strip()
-            if new_name and new_name != pet['name']:
-                self._rename(pet['id'], new_name)
-            else:
-                do_cancel()
+            def do_save(_=None):
+                new_name = var.get().strip()
+                if new_name and new_name != pet['name']:
+                    self._rename(pet['id'], new_name)
+                else:
+                    do_cancel()
 
-        def do_cancel(_=None):
-            edit.pack_forget()
-            view.pack(fill='x')
+            def do_cancel(_=None):
+                edit.pack_forget()
+                view.pack(fill='x')
 
-        rename_btn.config(command=start_edit)
-        save_btn.config(command=do_save)
-        cancel_btn.config(command=do_cancel)
-        entry.bind('<Return>', do_save)
-        entry.bind('<Escape>', do_cancel)
+            rename_btn.config(command=start_edit)
+            save_btn.config(command=do_save)
+            cancel_btn.config(command=do_cancel)
+            entry.bind('<Return>', do_save)
+            entry.bind('<Escape>', do_cancel)
 
     # ── 이름 변경 / 삭제 ──────────────────────────────────────────────────────
     def _rename(self, pet_id: str, new_name: str):
