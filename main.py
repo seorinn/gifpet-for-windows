@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-GifPet - 타이핑할수록 신나게 춤추는 햄스터 오버레이
-트레이 아이콘 우클릭 → 보이기/숨기기, 속도, 크기, GIF, 종료
+GifPet - 타이핑할수록 신나게 춤추는 오버레이 펫
+트레이 아이콘 우클릭 → 보이기/숨기기, 속도, 크기, 펫 변경, GIF 등록, 종료
 """
 
 import tkinter as tk
@@ -100,6 +100,165 @@ def update_config(**kwargs):
 
 
 
+
+# ── 멀티 모니터 헬퍼 ─────────────────────────────────────────────────────────
+def _monitor_work_area(x: int, y: int) -> tuple:
+    """(x, y) 좌표가 속한 모니터의 작업 영역 (left, top, right, bottom) 반환."""
+    class _RECT(ctypes.Structure):
+        _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long),
+                    ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
+    class _MONITORINFO(ctypes.Structure):
+        _fields_ = [('cbSize', ctypes.c_ulong), ('rcMonitor', _RECT),
+                    ('rcWork', _RECT), ('dwFlags', ctypes.c_ulong)]
+
+    pt   = ctypes.wintypes.POINT(x, y)
+    hmon = ctypes.windll.user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
+    mi   = _MONITORINFO()
+    mi.cbSize = ctypes.sizeof(_MONITORINFO)
+    ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mi))
+    r = mi.rcWork
+    return r.left, r.top, r.right, r.bottom
+
+
+# ── 커스텀 컨텍스트 메뉴 ─────────────────────────────────────────────────────
+class _CtxMenu(tk.Toplevel):
+    """그림자 없는 컨텍스트 메뉴. overrideredirect + WS_POPUP 으로 OS 그림자 제거."""
+
+    BG    = '#ffffff'
+    HOVER = '#eef'
+    SEP   = '#e8e8e8'
+    TEXT  = '#111111'
+    MUTED = '#999999'
+    ACC   = '#6366f1'
+    F     = ('Segoe UI', 8)
+
+    def __init__(self, root_win: tk.Tk, items: list, x: int, y: int, _on_close=None):
+        super().__init__(root_win)
+        self.overrideredirect(True)
+        self.wm_attributes('-topmost', True)
+        self.configure(bg='#cccccc')          # 외곽 1px 테두리색
+
+        self._root = root_win
+        self._sub  = None
+        self._on_close = _on_close
+
+        # 화면 밖에 먼저 렌더링하여 크기 확정 후 정확한 위치로 이동
+        self.geometry('+9999+9999')
+        self._target_x = x
+        self._target_y = y
+
+        body = tk.Frame(self, bg=self.BG, pady=3)
+        body.pack(fill='both', expand=True, padx=1, pady=1)
+
+        for it in items:
+            if it is None:
+                tk.Frame(body, bg=self.SEP, height=1).pack(fill='x', padx=6, pady=2)
+            else:
+                self._row(body, it)
+
+        self.update_idletasks()
+        # 1ms 후 실제 렌더된 크기로 위치 확정 (update_idletasks만으론 부족할 때 대비)
+        self.after(1, self._reposition)
+
+        self._bid = root_win.bind('<Button-1>', self._outside, add='+')
+        self.bind('<Escape>', lambda _: self._close())
+
+    # ── 위치 확정 ─────────────────────────────────────────────────────────────
+    def _reposition(self):
+        w = self.winfo_reqwidth()
+        h = self.winfo_reqheight()
+        x, y = self._target_x, self._target_y
+
+        # 클릭한 좌표가 속한 모니터의 작업 영역을 구해 클리핑
+        mx0, my0, mx1, my1 = _monitor_work_area(x, y)
+        fx = min(x, mx1 - w - 2)
+        fy = min(y, my1 - h - 2)
+        self.geometry(f'{w}x{h}+{max(mx0, fx)}+{max(my0, fy)}')
+        self.lift()
+
+    # ── 항목 ──────────────────────────────────────────────────────────────────
+    def _row(self, parent: tk.Frame, it: dict):
+        has_sub = it.get('sub') is not None
+        checked = it.get('checked', False)
+        cmd     = it.get('cmd')
+
+        row = tk.Frame(parent, bg=self.BG, cursor='hand2')
+        row.pack(fill='x', padx=2)
+
+        ck = tk.Label(row, text='·' if checked else ' ',
+                      bg=self.BG, fg=self.ACC if checked else self.BG,
+                      font=('Segoe UI', 9), width=2, anchor='center')
+        ck.pack(side='left')
+
+        lbl = tk.Label(row, text=it['label'], bg=self.BG, fg=self.TEXT,
+                       font=self.F, anchor='w', padx=4, pady=2)
+        lbl.pack(side='left', fill='x', expand=True)
+
+        arr = None
+        if has_sub:
+            arr = tk.Label(row, text='›', bg=self.BG, fg=self.MUTED,
+                           font=('Segoe UI', 10), padx=6, pady=2)
+            arr.pack(side='right')
+
+        parts = [w for w in (row, ck, lbl, arr) if w]
+
+        def enter(_):
+            for w in parts: w.config(bg=self.HOVER)
+            if has_sub:
+                self._open_sub(it['sub'], row)
+            elif self._sub:
+                self._close_sub()
+
+        def leave(_):
+            for w in parts: w.config(bg=self.BG)
+
+        def click(_):
+            if cmd:
+                self._close()
+                cmd()
+
+        for w in parts:
+            w.bind('<Enter>', enter)
+            w.bind('<Leave>', leave)
+            w.bind('<Button-1>', click)
+
+    # ── 서브메뉴 ──────────────────────────────────────────────────────────────
+    def _open_sub(self, items, anchor):
+        self._close_sub()
+        ax = anchor.winfo_rootx() + anchor.winfo_width() + 2
+        ay = anchor.winfo_rooty() - 3
+        self._sub = _CtxMenu(self._root, items, ax, ay,
+                             _on_close=lambda: setattr(self, '_sub', None))
+
+    def _close_sub(self):
+        if self._sub:
+            try: self._sub._close()
+            except Exception: pass
+            self._sub = None
+
+    # ── 닫기 ──────────────────────────────────────────────────────────────────
+    def _close(self):
+        self._close_sub()
+        try: self._root.unbind('<Button-1>', self._bid)
+        except Exception: pass
+        if self._on_close: self._on_close()
+        try: self.destroy()
+        except Exception: pass
+
+    def _outside(self, event):
+        for win in self._all():
+            try:
+                if (win.winfo_rootx() <= event.x_root <= win.winfo_rootx() + win.winfo_width()
+                        and win.winfo_rooty() <= event.y_root <= win.winfo_rooty() + win.winfo_height()):
+                    return
+            except Exception:
+                pass
+        self._close()
+
+    def _all(self):
+        return [self] + (self._sub._all() if self._sub else [])
+
+
 def create_tray_icon_image() -> Image.Image:
     """🐹 이모지를 Segoe UI Emoji 폰트로 렌더링. 실패 시 손그림 폴백."""
     size = 64
@@ -107,7 +266,8 @@ def create_tray_icon_image() -> Image.Image:
     d = ImageDraw.Draw(img)
     try:
         from PIL import ImageFont
-        font = ImageFont.truetype(r'C:\Windows\Fonts\seguiemj.ttf', 52)
+        font_path = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'Fonts' / 'seguiemj.ttf'
+        font = ImageFont.truetype(str(font_path), 52)
         bbox = d.textbbox((0, 0), '🐹', font=font, embedded_color=True)
         x = (size - (bbox[2] - bbox[0])) // 2 - bbox[0]
         y = (size - (bbox[3] - bbox[1])) // 2 - bbox[1]
@@ -162,36 +322,72 @@ class GifPet:
         self.running       = True
         self.visible       = True
         self.current_frame = 0
-        self.frames        = []
+        self.frames: list  = []
+        self.action_frames: dict = {}
+        self.current_action: str = 'idle'
+        self._current_pet_id: str | None = None
 
         self._drag_x = 0
         self._drag_y = 0
         self._last_heart_time: float = 0.0
 
-        self._resolve_gif_path()
         self._init_window()
-        self._load_frames()
+        self._load_pet()
         self._init_tray()
         self._init_keyboard()
 
-    # ── GIF 경로 확인 ─────────────────────────────────────────────────────────
-    def _resolve_gif_path(self):
-        user_gif = get_app_dir() / 'pet.gif'
-        if user_gif.exists():
-            self._custom_gif = user_gif
-        else:
-            bundled = get_bundled_resource('pet.gif')
-            self._custom_gif = bundled if bundled.exists() else None
-
-    # ── 프레임 로드 ───────────────────────────────────────────────────────────
-    def _load_frames(self):
+    # ── 펫 로드 ──────────────────────────────────────────────────────────────
+    def _load_pet(self):
+        """레지스트리의 활성 펫을 로드. 없으면 pet.gif 폴백."""
+        from pet_registry import get_active_pet
         size = (self._display_size, self._display_size)
-        if self._custom_gif:
-            self.frames = load_gif_frames(self._custom_gif, size)
+
+        pet = get_active_pet(get_app_dir())
+        if pet:
+            loaded: dict[str, list] = {}
+            for action, gif_path in pet['actions'].items():
+                p = Path(gif_path)
+                if p.exists():
+                    try:
+                        frames = load_gif_frames(p, size)
+                        if frames:
+                            loaded[action] = frames
+                    except Exception:
+                        pass
+            if loaded:
+                self.action_frames = loaded
+                self._current_pet_id = pet['id']
+                self._set_action('idle')
+                return
+
+        # 폴백: pet.gif (기존 방식)
+        for candidate in [get_app_dir() / 'pet.gif',
+                          get_bundled_resource('pet.gif')]:
+            if candidate.exists():
+                try:
+                    frames = load_gif_frames(candidate, size)
+                    if frames:
+                        self.action_frames = {'idle': frames}
+                        self._current_pet_id = None
+                        self._set_action('idle')
+                        return
+                except Exception:
+                    pass
+
+        raise RuntimeError(
+            '표시할 GIF가 없습니다.\n트레이 메뉴 > GIF 등록... 으로 펫을 추가해 주세요.'
+        )
+
+    def _set_action(self, action: str):
+        """현재 액션 설정. 없으면 첫 번째로 폴백."""
+        if action in self.action_frames:
+            self.current_action = action
+        elif self.action_frames:
+            self.current_action = next(iter(self.action_frames))
         else:
-            raise RuntimeError('pet.gif를 찾을 수 없습니다. GIF 폴더에 pet.gif를 추가하세요.')
-        if not self.frames:
-            raise RuntimeError('프레임 로드 실패')
+            self.current_action = 'idle'
+        self.frames = self.action_frames.get(self.current_action, [])
+        self.current_frame = 0
 
     # ── 윈도우 초기화 ─────────────────────────────────────────────────────────
     def _init_window(self):
@@ -211,10 +407,11 @@ class GifPet:
         self.canvas.pack()
         self._canvas_img_id = None
 
-        # 드래그로 위치 이동 + 클릭 시 하트
+        # 드래그로 위치 이동 + 클릭 시 하트 + 우클릭 메뉴
         self.canvas.bind('<ButtonPress-1>',   self._drag_start)
         self.canvas.bind('<B1-Motion>',       self._drag_move)
         self.canvas.bind('<ButtonRelease-1>', self._on_click_release)
+        self.canvas.bind('<Button-3>',        self._show_context_menu)
 
         self._heart_pts_cache: dict = {}  # size → 정규화된 하트 좌표 캐시
 
@@ -371,7 +568,12 @@ class GifPet:
             pystray.MenuItem('기본 속도', self._speed_menu()),
             pystray.MenuItem('크기',     self._size_menu()),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem('GIF 폴더 열기', self._open_gif_folder),
+            pystray.MenuItem('펫 변경', pystray.Menu(self._iter_pet_menu_items)),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem('GIF 등록...',      self._open_register_dialog),
+            pystray.MenuItem('등록 목록 관리...', self._open_manage_dialog),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem('GIF 폴더 열기',    self._open_gif_folder),
             pystray.MenuItem('GIF 다시 불러오기', self._reload),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem('종료', self._quit),
@@ -380,6 +582,49 @@ class GifPet:
             'GifPet', create_tray_icon_image(), 'GifPet', menu
         )
         threading.Thread(target=self.tray.run, daemon=True).start()
+
+    def _iter_pet_menu_items(self):
+        """펫 변경 서브메뉴 – 열릴 때마다 레지스트리에서 동적으로 생성"""
+        from pet_registry import load_registry
+        reg = load_registry(get_app_dir())
+        pets = reg.get('pets', [])
+        if not pets:
+            yield pystray.MenuItem('(등록된 펫 없음)', None, enabled=False)
+            return
+        for pet in pets:
+            pid = pet['id']
+            yield pystray.MenuItem(
+                pet['name'],
+                lambda *_, pid=pid: self._switch_pet(pid),
+                checked=lambda *_, pid=pid: self._current_pet_id == pid,
+                radio=True,
+            )
+
+    def _switch_pet(self, pet_id: str):
+        from pet_registry import set_active_pet
+        set_active_pet(get_app_dir(), pet_id)
+        def _do():
+            import tkinter.messagebox as mb
+            try:
+                self._load_pet()
+                self._canvas_img_id = None
+            except Exception as e:
+                mb.showerror('GifPet', f'펫 전환 실패: {e}')
+        self.root.after(0, _do)
+
+    def _open_register_dialog(self, *_):
+        from register_dialog import RegisterDialog
+        def _on_done(pet):
+            self._switch_pet(pet['id'])
+        self.root.after(0, lambda: RegisterDialog(
+            self.root, get_app_dir(), on_complete=_on_done))
+
+    def _open_manage_dialog(self, *_):
+        from register_dialog import ManagePetsDialog
+        def _on_change():
+            self.root.after(0, self._reload)
+        self.root.after(0, lambda: ManagePetsDialog(
+            self.root, get_app_dir(), on_change=_on_change))
 
     def _speed_menu(self):
         items = []
@@ -421,12 +666,11 @@ class GifPet:
         prev_size = self._display_size
         self._display_size = size
         try:
-            self._load_frames()
+            self._load_pet()
         except Exception as e:
             self._display_size = prev_size
             mb.showerror('GifPet', f'GIF 로드 실패: {e}')
             return
-        self.current_frame = 0
         self.canvas.config(width=size, height=size)
         self._canvas_img_id = None
         self._reposition()
@@ -446,14 +690,55 @@ class GifPet:
         def _do_reload():
             import tkinter.messagebox as mb
             try:
-                self._resolve_gif_path()
-                self._load_frames()
-                self.current_frame = 0
+                self._load_pet()
                 self._canvas_img_id = None
                 self._heart_pts_cache.clear()
             except Exception as e:
                 mb.showerror('GifPet', f'GIF 로드 실패: {e}')
         self.root.after(0, _do_reload)
+
+    def _show_context_menu(self, event):
+        """펫 위 우클릭 → 커스텀 메뉴 (그림자 없음)"""
+        from pet_registry import load_registry
+
+        speed_sub = [
+            {'label': lbl, 'cmd': lambda d=d: self._set_speed(d),
+             'checked': self._base_delay == d}
+            for lbl, d in SPEED_OPTIONS
+        ]
+        size_sub = [
+            {'label': f'{s}px', 'cmd': lambda s=s: self._set_size(s),
+             'checked': self._display_size == s}
+            for s in SIZE_OPTIONS
+        ]
+
+        items: list = [
+            {'label': '숨기기' if self.visible else '보이기', 'cmd': self._toggle},
+            None,
+            {'label': '기본 속도', 'sub': speed_sub},
+            {'label': '크기',      'sub': size_sub},
+        ]
+
+        reg  = load_registry(get_app_dir())
+        pets = reg.get('pets', [])
+        if pets:
+            pet_sub = [
+                {'label': p['name'],
+                 'cmd': lambda pid=p['id']: self._switch_pet(pid),
+                 'checked': p['id'] == self._current_pet_id}
+                for p in pets
+            ]
+            items += [None, {'label': '펫 변경', 'sub': pet_sub}]
+
+        items += [
+            None,
+            {'label': 'GIF 등록...',       'cmd': self._open_register_dialog},
+            {'label': '등록 목록 관리...', 'cmd': self._open_manage_dialog},
+            None,
+            {'label': '종료', 'cmd': self._quit},
+        ]
+
+        _CtxMenu(self.root, items, event.x_root, event.y_root)
 
     def _quit(self, *_):
         self.running = False
