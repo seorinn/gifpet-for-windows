@@ -405,7 +405,6 @@ class GifPet:
         self._last_char_time:    float   = 0.0
         self._held_arrows:       set     = set()
         self._arrow_loop_active: bool    = False
-        self._ground_y:          int | None = None
         self._is_jumping:        bool    = False
         self._jump_return_id:    str | None = None
 
@@ -574,7 +573,6 @@ class GifPet:
         self.root.geometry(f'+{x}+{y}')
 
     def _drag_end(self, event):
-        self._ground_y = None
         update_config(x=self.root.winfo_x(), y=self.root.winfo_y())
 
     def _on_click_release(self, event):
@@ -697,18 +695,19 @@ class GifPet:
             self._do_jump_anim()
 
     def _do_jump_anim(self):
-        """점프 애니메이션: 착지 완료 후에만 다음 점프 허용."""
+        """점프 애니메이션: 착지 완료 후에만 다음 점프 허용.
+        _is_jumping=True 구간(점프+쿨다운 400ms) 동안은 진입 불가이므로
+        이 시점의 winfo_y()는 반드시 착지 상태 위치를 반환한다."""
         if self._is_jumping:
             return
-        if self._ground_y is None:
-            self._ground_y = self.root.winfo_y()
 
-        ground = self._ground_y
+        gx = self.root.winfo_x()   # 점프 시작 위치를 X·Y 모두 고정
+        gy = self.root.winfo_y()
         self._is_jumping = True
-        self.root.geometry(f'+{self.root.winfo_x()}+{ground - 20}')
+        self.root.geometry(f'+{gx}+{gy - 20}')
 
         def _land():
-            self.root.geometry(f'+{self.root.winfo_x()}+{ground}')
+            self.root.geometry(f'+{gx}+{gy}')
             self._jump_return_id = self.root.after(150, _allow)
 
         def _allow():
@@ -791,7 +790,6 @@ class GifPet:
             self._arrow_loop_active = False
             self._action_hold_until = 0.0
             self._set_action('idle')
-            self._ground_y = None
             update_config(x=self.root.winfo_x(), y=self.root.winfo_y())
 
     def _arrow_loop(self):
